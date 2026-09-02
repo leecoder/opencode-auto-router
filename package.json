@@ -1,0 +1,41 @@
+{
+  "name": "opencode-auto-router",
+  "version": "0.1.0",
+  "description": "Complexity-based auto router for OpenCode — routes each user message to SIMPLE/MEDIUM/COMPLEX/REASONING model tiers via the chat.message hook (LiteLLM complexity_router algorithm port)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "router",
+    "complexity",
+    "multi-model"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {}
+}
