@@ -1,0 +1,17 @@
+{
+  "notify": true,
+  "enabled": true,
+  "routers": [
+    {
+      "name": "dgc",
+      "triggerModels": ["litellm/auto-dgc"],
+      "pinSession": true,
+      "tierModels": {
+        "SIMPLE": "litellm/databricks/databricks-glm-5-3-flash",
+        "MEDIUM": "litellm/databricks/databricks-deepseek-v4-flash-0731",
+        "COMPLEX": "litellm/sonnet-5",
+        "REASONING": "litellm/opus-5"
+      }
+    }
+  ]
+}

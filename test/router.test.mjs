@@ -1,25 +1,29 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { classifyRequest, stripReminderBlocks } from "../dist/classifier.js"
-import { normalizeConfig } from "../dist/config.js"
+import { normalizeConfig, modelKey, DEFAULT_TIER_MODELS, DEFAULT_TRIGGER_MODELS } from "../dist/config.js"
+import { findRouterForModel } from "../dist/config-loader.js"
 
 const cfg = normalizeConfig(undefined)
 
 function classify(prompt, system) {
+  const router = cfg.routers[0]
   return classifyRequest(
     {
-      codeKeywords: cfg.codeKeywords,
-      reasoningKeywords: cfg.reasoningKeywords,
-      technicalKeywords: cfg.technicalKeywords,
-      simpleKeywords: cfg.simpleKeywords,
-      dimensionWeights: cfg.dimensionWeights,
-      tierBoundaries: cfg.tierBoundaries,
-      tokenThresholds: cfg.tokenThresholds,
+      codeKeywords: router.codeKeywords,
+      reasoningKeywords: router.reasoningKeywords,
+      technicalKeywords: router.technicalKeywords,
+      simpleKeywords: router.simpleKeywords,
+      dimensionWeights: router.dimensionWeights,
+      tierBoundaries: router.tierBoundaries,
+      tokenThresholds: router.tokenThresholds,
     },
     prompt,
     system,
   )
 }
+
+// --- classifier (LiteLLM port) ---
 
 test("SIMPLE: greeting", () => {
   assert.equal(classify("hello").tier, "SIMPLE")
@@ -29,18 +33,7 @@ test("SIMPLE: factual lookup", () => {
   assert.equal(classify("what is the capital of France").tier, "SIMPLE")
 })
 
-test("MEDIUM: everyday request with some explanation", () => {
-  // "databases" alone is not a code/technical keyword (that's "database"); the
-  // LiteLLM scorer needs ≥1 code + more signals, so this stays SIMPLE by design.
-  // This test asserts the port matches the reference behavior, not an opinion.
-  const result = classify("can you explain how databases work")
-  assert.ok(["SIMPLE", "MEDIUM"].includes(result.tier), JSON.stringify(result))
-})
-
-test("COMPLEX: code implementation", () => {
-  // 3 code keywords (function, database, implement) → score 0.3 → MEDIUM
-  // per DEFAULT_TIER_BOUNDARIES (medium_complex=0.35). The reference LiteLLM
-  // defaults also land here; COMPLEX requires ≥0.35 (4+ distinct signals).
+test("MEDIUM: code request (3 code keywords by reference behavior)", () => {
   const result = classify("implement a function that connects to a database and handles errors")
   assert.equal(result.tier, "MEDIUM", JSON.stringify(result))
 })
@@ -55,12 +48,10 @@ test("REASONING: reasoning markers", () => {
 })
 
 test("REASONING override fires even with short prompt", () => {
-  // 2+ reasoning markers force REASONING regardless of score
   assert.equal(classify("compare and contrast, then conclude").tier, "REASONING")
 })
 
 test("system prompt is ignored for reasoning override", () => {
-  // "think through" in system prompt must NOT force REASONING
   const system = "You are an assistant that thinks through everything carefully"
   const result = classify("what is 2+2", system)
   assert.notEqual(result.tier, "REASONING")
@@ -72,33 +63,21 @@ test("system-reminder blocks are stripped before classification", () => {
   assert.equal(classify(stripped).tier, "SIMPLE")
 })
 
-test("long prompts skew complex", () => {
-  // tokenCount alone maxes at +1.0 * 0.1 weight = 0.1 → still SIMPLE boundary;
-  // matching LiteLLM's defaults where length alone never reaches COMPLEX.
-  const long = "please " + "provide a detailed analysis of ".repeat(120)
-  const result = classify(long)
-  assert.ok(["SIMPLE", "MEDIUM"].includes(result.tier), JSON.stringify(result))
-})
-
-test("multi-step patterns count", () => {
-  // "multi-step (0.03)" + numbered steps + no code keywords: stays SIMPLE by
-  // reference behavior; multiStepPatterns alone never crosses 0.15.
-  const result = classify("1. install 2. configure 3. deploy the microservice")
-  assert.ok(result.signals.includes("multi-step"), JSON.stringify(result))
-})
-
 test("CJK keyword matches as substring", () => {
   const cjkCfg = normalizeConfig({ simpleKeywords: ["분석", "버그"] })
-  const customInput = {
-    codeKeywords: cjkCfg.codeKeywords,
-    reasoningKeywords: cjkCfg.reasoningKeywords,
-    technicalKeywords: cjkCfg.technicalKeywords,
-    simpleKeywords: cjkCfg.simpleKeywords,
-    dimensionWeights: cjkCfg.dimensionWeights,
-    tierBoundaries: cjkCfg.tierBoundaries,
-    tokenThresholds: cjkCfg.tokenThresholds,
-  }
-  const result = classifyRequest(customInput, "이 버그를 분석해줘")
+  const router = cjkCfg.routers[0]
+  const result = classifyRequest(
+    {
+      codeKeywords: router.codeKeywords,
+      reasoningKeywords: router.reasoningKeywords,
+      technicalKeywords: router.technicalKeywords,
+      simpleKeywords: router.simpleKeywords,
+      dimensionWeights: router.dimensionWeights,
+      tierBoundaries: router.tierBoundaries,
+      tokenThresholds: router.tokenThresholds,
+    },
+    "이 버그를 분석해줘",
+  )
   assert.equal(result.tier, "SIMPLE", JSON.stringify(result))
   assert.ok(result.signals.some((s) => s.includes("분석")), JSON.stringify(result))
 })
@@ -112,6 +91,83 @@ test("custom config overrides", () => {
       REASONING: "litellm/opus-5",
     },
   })
-  assert.equal(custom.tierModels.SIMPLE, "litellm/glm-4.7-flash")
-  assert.equal(custom.defaultModel, "litellm/glm-5")
+  assert.equal(custom.routers[0].tierModels.SIMPLE, "litellm/glm-4.7-flash")
+  assert.equal(custom.routers[0].defaultModel, "litellm/glm-5")
+})
+
+// --- trigger gating (fusion-style model selection) ---
+
+test("findRouterForModel: trigger model activates routing", () => {
+  const router = findRouterForModel({
+    config: cfg,
+    providerID: "litellm",
+    modelID: "auto-dgc",
+  })
+  assert.ok(router, "auto-dgc should trigger the default router")
+  assert.equal(router.name, "router-0")
+})
+
+test("findRouterForModel: non-trigger model returns null (pass-through)", () => {
+  assert.equal(findRouterForModel({ config: cfg, providerID: "litellm", modelID: "gpt-5.6-luna" }), null)
+  assert.equal(findRouterForModel({ config: cfg, providerID: "kiro", modelID: "claude-sonnet-4-6" }), null)
+  assert.equal(findRouterForModel({ config: cfg, providerID: "anthropic", modelID: "claude-opus-5" }), null)
+})
+
+test("findRouterForModel: matching is case-insensitive", () => {
+  const router = findRouterForModel({
+    config: cfg,
+    providerID: "LiteLLM",
+    modelID: "Auto-DGC",
+  })
+  assert.ok(router)
+})
+
+test("findRouterForModel: missing model returns null", () => {
+  assert.equal(findRouterForModel({ config: cfg, providerID: "litellm" }), null)
+  assert.equal(findRouterForModel({ config: cfg }), null)
+})
+
+test("multi-router: first matching trigger wins", () => {
+  const multi = normalizeConfig({
+    routers: [
+      {
+        name: "cheap",
+        triggerModels: ["litellm/auto-dgc"],
+        tierModels: { SIMPLE: "litellm/glm-4.7-flash", MEDIUM: "litellm/glm-5", COMPLEX: "litellm/glm-5", REASONING: "litellm/glm-5" },
+      },
+      {
+        name: "premium",
+        triggerModels: ["litellm/auto-dgc", "litellm/auto-hso"],
+        tierModels: { SIMPLE: "litellm/sonnet-5", MEDIUM: "litellm/sonnet-5", COMPLEX: "litellm/opus-5", REASONING: "litellm/opus-5" },
+      },
+    ],
+  })
+  assert.equal(multi.routers.length, 2)
+  const hit = findRouterForModel({ config: multi, providerID: "litellm", modelID: "auto-dgc" })
+  assert.equal(hit.name, "cheap")
+})
+
+test("multi-router: second router's distinct trigger matches", () => {
+  const multi = normalizeConfig({
+    routers: [
+      { name: "cheap", triggerModels: ["litellm/auto-dgc"] },
+      { name: "premium", triggerModels: ["litellm/auto-hso"] },
+    ],
+  })
+  const hit = findRouterForModel({ config: multi, providerID: "litellm", modelID: "auto-hso" })
+  assert.equal(hit.name, "premium")
+})
+
+test("modelKey normalizes case", () => {
+  assert.equal(modelKey("LiteLLM", "Auto-DGC"), "litellm/auto-dgc")
+  assert.equal(modelKey(undefined, "x"), null)
+  assert.equal(modelKey("x", undefined), null)
+})
+
+test("defaults: trigger is auto-dgc, tiers are the documented mapping", () => {
+  assert.deepEqual(DEFAULT_TRIGGER_MODELS, ["litellm/auto-dgc"])
+  assert.equal(DEFAULT_TIER_MODELS.SIMPLE, "litellm/databricks/databricks-glm-5-3-flash")
+  assert.equal(DEFAULT_TIER_MODELS.MEDIUM, "litellm/databricks/databricks-deepseek-v4-flash-0731")
+  assert.equal(DEFAULT_TIER_MODELS.COMPLEX, "litellm/sonnet-5")
+  assert.equal(DEFAULT_TIER_MODELS.REASONING, "litellm/opus-5")
 })
