@@ -4,7 +4,7 @@
   "routers": [
     {
       "name": "dgc",
-      "triggerModels": ["litellm/auto-dgc"],
+      "triggerModels": ["auto-router/glm-ds-cld"],
       "pinSession": true,
       "tierModels": {
         "SIMPLE": "litellm/databricks/databricks-glm-5-3-flash",

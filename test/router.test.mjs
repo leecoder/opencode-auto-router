@@ -100,10 +100,10 @@ test("custom config overrides", () => {
 test("findRouterForModel: trigger model activates routing", () => {
   const router = findRouterForModel({
     config: cfg,
-    providerID: "litellm",
-    modelID: "auto-dgc",
+    providerID: "auto-router",
+    modelID: "glm-ds-cld",
   })
-  assert.ok(router, "auto-dgc should trigger the default router")
+  assert.ok(router, "auto-router/glm-ds-cld should trigger the default router")
   assert.equal(router.name, "router-0")
 })
 
@@ -111,13 +111,14 @@ test("findRouterForModel: non-trigger model returns null (pass-through)", () => 
   assert.equal(findRouterForModel({ config: cfg, providerID: "litellm", modelID: "gpt-5.6-luna" }), null)
   assert.equal(findRouterForModel({ config: cfg, providerID: "kiro", modelID: "claude-sonnet-4-6" }), null)
   assert.equal(findRouterForModel({ config: cfg, providerID: "anthropic", modelID: "claude-opus-5" }), null)
+  assert.equal(findRouterForModel({ config: cfg, providerID: "litellm", modelID: "auto-dgc" }), null)
 })
 
 test("findRouterForModel: matching is case-insensitive", () => {
   const router = findRouterForModel({
     config: cfg,
-    providerID: "LiteLLM",
-    modelID: "Auto-DGC",
+    providerID: "Auto-Router",
+    modelID: "GLM-DS-CLD",
   })
   assert.ok(router)
 })
@@ -164,8 +165,8 @@ test("modelKey normalizes case", () => {
   assert.equal(modelKey("x", undefined), null)
 })
 
-test("defaults: trigger is auto-dgc, tiers are the documented mapping", () => {
-  assert.deepEqual(DEFAULT_TRIGGER_MODELS, ["litellm/auto-dgc"])
+test("defaults: trigger is auto-router/glm-ds-cld, tiers are the documented mapping", () => {
+  assert.deepEqual(DEFAULT_TRIGGER_MODELS, ["auto-router/glm-ds-cld"])
   assert.equal(DEFAULT_TIER_MODELS.SIMPLE, "litellm/databricks/databricks-glm-5-3-flash")
   assert.equal(DEFAULT_TIER_MODELS.MEDIUM, "litellm/databricks/databricks-deepseek-v4-flash-0731")
   assert.equal(DEFAULT_TIER_MODELS.COMPLEX, "litellm/sonnet-5")

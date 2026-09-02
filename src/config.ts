@@ -28,7 +28,7 @@ export const DEFAULT_TIER_MODELS: TierModels = {
   REASONING: "litellm/opus-5",
 }
 
-export const DEFAULT_TRIGGER_MODELS = ["litellm/auto-dgc"]
+export const DEFAULT_TRIGGER_MODELS = ["auto-router/glm-ds-cld"]
 
 export interface TierModels {
   SIMPLE: string
@@ -43,7 +43,7 @@ export interface TierModels {
 export interface RouterConfig {
   /** Display name (used in logs) */
   name?: string
-  /** Session models that activate this router. Default: ["litellm/auto-dgc"] */
+  /** Session models that activate this router. Default: ["auto-router/glm-ds-cld"] */
   triggerModels?: string[]
   /** Tier → model reference ("provider/model-id") */
   tierModels?: Partial<TierModels>

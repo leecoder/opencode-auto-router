@@ -1,16 +1,19 @@
 # opencode-auto-router
 
-Complexity-based auto router for [OpenCode](https://opencode.ai). Routes each user message to a SIMPLE / MEDIUM / COMPLEX / REASONING model tier by classifying request complexity — a faithful TypeScript port of LiteLLM's `complexity_router` heuristic scorer, applied locally via the `chat.message` hook.
+Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/glm-ds-cld` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Classification is a faithful TypeScript port of LiteLLM's `complexity_router` heuristic scorer, applied via the `chat.message` hook.
 
 ```
-User message → chat.message hook → complexity scoring → output.message.model = tier model
+TUI selection ─┬─ auto-router/glm-ds-cld (local router model)
+               │      └→ chat.message hook → complexity scoring → tier model
+               └─ any other model → used as-is (routing skipped)
 ```
 
 OpenCode keeps the full session, system prompt, tools, and agent context intact — only the model that answers changes.
 
 ## How it works
 
-The classifier scores each request across 7 dimensions (LiteLLM defaults):
+1. **Trigger gate**: the session's selected model is checked against each router's `triggerModels`. No match → the plugin does nothing for that message.
+2. **Classification**: the scorer rates the request across 7 dimensions (LiteLLM defaults):
 
 | Dimension | Weight |
 |-----------|--------|
@@ -22,40 +25,109 @@ The classifier scores each request across 7 dimensions (LiteLLM defaults):
 | multiStepPatterns | 0.03 |
 | questionComplexity | 0.02 |
 
-The weighted score maps to tiers using configurable boundaries (defaults `0.15 / 0.35 / 0.60`). Two or more reasoning markers force the REASONING tier regardless of score (LiteLLM's reasoning override). Harness reminder blocks (`<system-reminder>…</system-reminder>`) are stripped before classification, and CJK/Hangul keywords match as plain substrings (word boundaries don't fire between CJK characters).
+3. **Tier mapping**: the weighted score maps to tiers via boundaries (defaults `0.15 / 0.35 / 0.60`). Two or more reasoning markers force the REASONING tier regardless of score (LiteLLM's reasoning override). Harness reminder blocks (`<system-reminder>…</system-reminder>`) are stripped before classification, and CJK/Hangul keywords match as plain substrings.
 
 ## Installation
+
+Two registrations are needed — the plugin and a local "router model" that acts as the switch:
 
 ```jsonc
 // opencode.json (global or project)
 {
-  "plugin": ["opencode-auto-router"]
+  "plugin": ["opencode-auto-router"],
+  "provider": {
+    "auto-router": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "apiKey": "unused",
+        "baseURL": "http://127.0.0.1:1/v1"
+      },
+      "models": {
+        "glm-ds-cld": {
+          "name": "Auto Router (GLM/DS/Claude tiers)",
+          "limit": { "context": 1048576, "output": 128000 },
+          "modalities": { "input": ["text", "image"], "output": ["text"] }
+        }
+      }
+    }
+  }
 }
 ```
+
+The `baseURL` is never called — the hook swaps the model before any request leaves OpenCode. It only exists so the provider definition passes config validation.
 
 ## Configuration
 
-`~/.config/opencode/opencode-auto-router.json` (or `~/work/opencode-auto-router/opencode-auto-router.json`, `.opencode/opencode-auto-router.json`):
+`~/.config/opencode/opencode-auto-router.json` (also scanned: `~/.opencode/`, project `./.opencode/`, project root; `.jsonc` supported):
 
 ```json
 {
-  "tierModels": {
-    "SIMPLE": "litellm/databricks/databricks-glm-5-3-flash",
-    "MEDIUM": "litellm/databricks/databricks-deepseek-v4-flash-0731",
-    "COMPLEX": "litellm/sonnet-5",
-    "REASONING": "litellm/opus-5"
-  },
-  "defaultModel": "litellm/databricks/databricks-deepseek-v4-flash-0731",
-  "pinSession": true,
   "notify": true,
-  "enabled": true
+  "enabled": true,
+  "routers": [
+    {
+      "name": "dgc",
+      "triggerModels": ["auto-router/glm-ds-cld"],
+      "pinSession": true,
+      "tierModels": {
+        "SIMPLE": "litellm/databricks/databricks-glm-5-3-flash",
+        "MEDIUM": "litellm/databricks/databricks-deepseek-v4-flash-0731",
+        "COMPLEX": "litellm/sonnet-5",
+        "REASONING": "litellm/opus-5"
+      }
+    }
+  ]
 }
 ```
 
+### Multiple routers
+
+Register as many routing tables as you like — each with its own trigger models and tier mapping. The first router whose `triggerModels` match the selected model wins:
+
+```json
+{
+  "routers": [
+    {
+      "name": "cheap",
+      "triggerModels": ["auto-router/glm-ds-cld"],
+      "tierModels": {
+        "SIMPLE": "litellm/glm-4.7-flash",
+        "MEDIUM": "litellm/glm-5",
+        "COMPLEX": "litellm/sonnet-5",
+        "REASONING": "litellm/opus-5"
+      }
+    },
+    {
+      "name": "premium",
+      "triggerModels": ["auto-router/premium"],
+      "tierModels": {
+        "SIMPLE": "litellm/sonnet-5",
+        "MEDIUM": "litellm/sonnet-5",
+        "COMPLEX": "litellm/opus-5",
+        "REASONING": "litellm/opus-5"
+      }
+    }
+  ]
+}
+```
+
+Each entry in `triggerModels` needs a matching model in `opencode.json`'s `provider.auto-router.models` (or any other provider) so it can be picked in the TUI. Single-router shorthand also works — top-level `tierModels` / keyword fields form one implicit router when `routers` is absent.
+
+### Which model should you select in OpenCode?
+
+| Selection | Behavior |
+|-----------|----------|
+| `auto-router/glm-ds-cld` (or any configured trigger) | Routed per-message to the tier the classifier picks |
+| Any other model (`litellm/auto-dgc`, `kiro/claude-sonnet-4-6`, …) | Used exactly as you picked — routing never touches it |
+
+### Router options
+
 | Option | Description |
 |--------|-------------|
-| `tierModels` | Tier → `provider/model-id` mapping (required) |
-| `defaultModel` | Fallback when no tier can be determined |
+| `name` | Display name in logs (default `router-0`, `router-1`, …) |
+| `triggerModels` | Session models that activate this router (default `["auto-router/glm-ds-cld"]`) |
+| `tierModels` | Tier → `provider/model-id` mapping (defaults: the GLM/DS/Claude mapping above) |
+| `defaultModel` | Fallback when no tier can be determined (default: `tierModels.MEDIUM`) |
 | `codeKeywords` / `reasoningKeywords` / `technicalKeywords` / `simpleKeywords` | Keyword list overrides (defaults: LiteLLM's) |
 | `dimensionWeights` | Scoring weight overrides |
 | `tierBoundaries` | `simple_medium`, `medium_complex`, `complex_reasoning` |
@@ -63,15 +135,8 @@ The weighted score maps to tiers using configurable boundaries (defaults `0.15 /
 | `pinSession` | Pin the first session decision for the whole session (default `false`) |
 | `firstMessageOnly` | Route only the first message of a session |
 | `agents` / `excludeAgents` | Restrict routing to / exclude specific agents |
-| `notify` | Log tier changes (default `true`) |
 
-### Which model should you select in OpenCode?
-
-**Any model — the router overrides it per message.** Select a *default* model that you're comfortable paying for on the first message of every session (the router's `chat.message` hook runs before the LLM call, so the selected model is only what the router *starts from*). Because the router decides per user message, the model you pick in the TUI is mostly irrelevant for routing purposes — it just needs to be an available model.
-
-For best results:
-- Pick a cheap-but-capable default (e.g. `litellm/gpt-5.6-luna` or the MEDIUM tier model) — SIMPLE-tier messages will be re-routed to cheap models anyway, and your default only matters if the router is disabled or misconfigured.
-- With `pinSession: true`, the first message of each session fixes the tier for that session, so a cheap default means **every session starts SIMPLE/MEDIUM** until a complex ask arrives.
+Top-level options: `enabled` (master switch, default `true`), `notify` (log tier changes, default `true`).
 
 ## Development
 
