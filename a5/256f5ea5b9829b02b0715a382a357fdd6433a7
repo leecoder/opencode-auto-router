@@ -1,0 +1,31 @@
+src/config.ts
+  s_7cad2da50e2733::t_087de0f69eaa86 7-10,13-42,44-49,52,68-69,76-81,97-98,153-156,167,172-181,183-189,199,203-216,219-239
+  s_7cad2da50e2733::t_c0c737be6c0e2b 82-96
+  s_7cad2da50e2733::t_c4f5119ea3c133 217-218
+test/router.test.mjs
+  s_7cad2da50e2733::t_c0dd34aec5f8be 4-5,10,13-19,26-27,36,68-80,94-172
+tsup.config.ts
+  s_7cad2da50e2733::t_9a525542339d53 4
+src/index.ts
+  s_7cad2da50e2733::t_5c26e64ad197fc 2-3,11-45,49-50,57-65,67-68,70,74-77,79-80,87-90,95-101,104,107,109-110,115,118,122
+opencode-auto-router.json
+  s_7cad2da50e2733::t_69cc162169bb03 1-17
+src/config-loader.ts
+  s_7cad2da50e2733::t_c8377c8b8e824c 1-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a5256f5ea5b9829b02b0715a382a357fdd6433a7",
+  "prompts": {},
+  "sessions": {
+    "s_7cad2da50e2733": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_fa07786aeffe4Il5a94g9Ph1Jg",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
