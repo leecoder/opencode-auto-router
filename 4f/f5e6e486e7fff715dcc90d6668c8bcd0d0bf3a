@@ -1,0 +1,19 @@
+README.md
+  s_7cad2da50e2733::t_ca9c0d884b803e 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4ff5e6e486e7fff715dcc90d6668c8bcd0d0bf3a",
+  "prompts": {},
+  "sessions": {
+    "s_7cad2da50e2733": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_fa07786aeffe4Il5a94g9Ph1Jg",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
