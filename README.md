@@ -38,10 +38,6 @@ Two registrations are needed — the plugin and a local "router model" that acts
   "provider": {
     "auto-router": {
       "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "apiKey": "unused",
-        "baseURL": "http://127.0.0.1:1/v1"
-      },
       "models": {
         "glm-ds-cld": {
           "name": "Auto Router (GLM/DS/Claude tiers)",
@@ -54,7 +50,7 @@ Two registrations are needed — the plugin and a local "router model" that acts
 }
 ```
 
-The `baseURL` is never called — the hook swaps the model before any request leaves OpenCode. It only exists so the provider definition passes config validation.
+No `options`/`baseURL` needed — `options` is optional in the provider schema, and the hook swaps the model before any request is built, so a URL is never used. If the plugin is disabled and you select the router model anyway, OpenCode fails fast with `"undefined/chat/completions" cannot be parsed as a URL` — a clear signal the router isn't active.
 
 ## Configuration
 
