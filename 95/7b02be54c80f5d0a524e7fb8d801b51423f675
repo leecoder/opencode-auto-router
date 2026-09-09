@@ -1,0 +1,27 @@
+src/classifiers/types.ts
+  s_5a7678ee3e9c4b::t_bdde2da67933ea 1-35
+src/classifiers/heuristic.ts
+  s_5a7678ee3e9c4b::t_272e6d29234337 1-68
+src/classifiers/orchestrator.ts
+  s_5a7678ee3e9c4b::t_43d0d0095bc7e0 103
+  s_5a7678ee3e9c4b::t_27dde40b88b8bd 1-56,58-59,78-79,81-102,104-135
+  s_5a7678ee3e9c4b::t_e246437692d054 80
+  s_5a7678ee3e9c4b::t_18a3cf0c6146bb 60-77
+  s_5a7678ee3e9c4b::t_94a555f8acb599 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "957b02be54c80f5d0a524e7fb8d801b51423f675",
+  "prompts": {},
+  "sessions": {
+    "s_5a7678ee3e9c4b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f7ab52b98ffeb6ghrhCvmosF6b",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
