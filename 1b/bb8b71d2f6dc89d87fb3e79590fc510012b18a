@@ -1,0 +1,32 @@
+tsup.config.ts
+  s_5a7678ee3e9c4b::t_bd19f01fef0300 9
+package.json
+  s_5a7678ee3e9c4b::t_e7a0cf7d7f16d9 43-44
+  s_5a7678ee3e9c4b::t_8904f5d483d2e4 35-38
+package-lock.json
+  s_7f6fecae0ddde2::t_fc921ef343421b 11-14,20-23,28-58,72-113,556-1110,1150-1199,1333-1342,1353-1428,1822,1831-1837,1842,1848-1857,1871-1912,1920-1927,1997-2003,2019-2028,2047-2096,2107-2113,2133-2159,2202-2224,2285-2291,2307-2392,2403-2412,2434-2441,2480-2486,2497-2509,2598-2604,2615-2671,2731-2737,2781-2804,2822-2828,2853-2870,2917-2997,3031-3037,3135-3141,3195-3207,3226,3229-3248,3253,3303-3305,3307,3312-3321
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1bbb8b71d2f6dc89d87fb3e79590fc510012b18a",
+  "prompts": {},
+  "sessions": {
+    "s_5a7678ee3e9c4b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f7ab52b98ffeb6ghrhCvmosF6b",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_7f6fecae0ddde2": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f7ab52b98ffeb6ghrhCvmosF6b",
+        "model": "databricks/databricks-glm-5-3-flash"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
