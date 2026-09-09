@@ -32,10 +32,13 @@
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.0.0"
   },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "@meridius-labs/apple-on-device-ai": "^1.6.2"
+  },
   "devDependencies": {
     "@types/node": "^26.0.1",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0"
-  },
-  "dependencies": {}
+  }
 }

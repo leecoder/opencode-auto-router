@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   target: "node18",
-  external: ["@opencode-ai/plugin"],
+  external: ["@opencode-ai/plugin", "@huggingface/transformers", "@meridius-labs/apple-on-device-ai"],
 })
