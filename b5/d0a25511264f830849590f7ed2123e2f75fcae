@@ -1,0 +1,26 @@
+src/classifiers/bert.ts
+  s_5a7678ee3e9c4b::t_b48ea4f36a5f8f 56
+  s_5a7678ee3e9c4b::t_98527720a9db50 62-63
+  s_5a7678ee3e9c4b::t_bfc03b64620557 66,75
+  s_5a7678ee3e9c4b::t_d3a0bfe360d853 28-29
+  s_5a7678ee3e9c4b::t_5457a6ab9cb53b 1-27,30-55,57-61,64-65,67-74,76-97,100-127
+  s_5a7678ee3e9c4b::t_04b3b009138bf7 98-99
+src/classifiers/apple.ts
+  s_5a7678ee3e9c4b::t_fa2f5040864217 1-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b5d0a25511264f830849590f7ed2123e2f75fcae",
+  "prompts": {},
+  "sessions": {
+    "s_5a7678ee3e9c4b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f7ab52b98ffeb6ghrhCvmosF6b",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
