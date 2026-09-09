@@ -1,6 +1,8 @@
 # opencode-auto-router
 
-Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/glm-ds-cld` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Classification is a faithful TypeScript port of LiteLLM's `complexity_router` heuristic scorer, applied via the `chat.message` hook.
+Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/glm-ds-cld` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Applied via the `chat.message` hook.
+
+Classification is pluggable: a LiteLLM-ported heuristic scorer (default), a local BERT-style ONNX model, or the macOS on-device Apple Foundation Model — usable alone or combined (priority chain / confidence vote).
 
 ```
 TUI selection ─┬─ auto-router/glm-ds-cld (local router model)
@@ -13,7 +15,7 @@ OpenCode keeps the full session, system prompt, tools, and agent context intact 
 ## How it works
 
 1. **Trigger gate**: the session's selected model is checked against each router's `triggerModels`. No match → the plugin does nothing for that message.
-2. **Classification**: the scorer rates the request across 7 dimensions (LiteLLM defaults):
+2. **Classification**: the router's classifier backends produce a tier. Default is the heuristic scorer, which rates the request across 7 dimensions (LiteLLM defaults):
 
 | Dimension | Weight |
 |-----------|--------|
@@ -26,6 +28,63 @@ OpenCode keeps the full session, system prompt, tools, and agent context intact 
 | questionComplexity | 0.02 |
 
 3. **Tier mapping**: the weighted score maps to tiers via boundaries (defaults `0.15 / 0.35 / 0.60`). Two or more reasoning markers force the REASONING tier regardless of score (LiteLLM's reasoning override). Harness reminder blocks (`<system-reminder>…</system-reminder>`) are stripped before classification, and CJK/Hangul keywords match as plain substrings.
+
+## Classifiers
+
+Each router picks its backends and how they combine:
+
+```jsonc
+{
+  "routers": [
+    {
+      "name": "hybrid",
+      "classifiers": ["heuristic", "bert", "apple-fm"],   // run order
+      "classifierCombination": "priority",                 // or "vote"
+      "classifierOptions": {
+        "heuristic": { "shortCircuitTiers": ["SIMPLE", "REASONING"] },
+        "bert": {
+          "model": "mustafacolakoglu94/llm-query-complexity-classifier-onnx",
+          "onnxFile": "onnx/model_quantized.onnx",
+          "timeoutMs": 10000,
+          "labelToTier": { "LOW": "SIMPLE", "MEDIUM": "MEDIUM", "HIGH": "COMPLEX" }
+        },
+        "apple-fm": { "timeoutMs": 15000 }
+      }
+    }
+  ]
+}
+```
+
+- **`heuristic`** (default) — the LiteLLM-port keyword scorer. <1 ms, zero deps.
+- **`bert`** — local ONNX text classifier via `@huggingface/transformers` (optional dependency; the dynamic import fails soft when it is not installed). Default model is a ModernBERT fine-tune of `anasnassar/llm-query-complexity-classifier` (Apache-2.0, labels LOW/MEDIUM/HIGH, 8k context). First use downloads ~144 MB to the HF cache; after that it runs fully offline — measured warm latency ~5 ms on Apple Silicon, and it handles Korean prompts directly (no keyword lists needed).
+- **`apple-fm`** — macOS 26+ Apple Foundation Models via `@meridius-labs/apple-on-device-ai` (optional, darwin-only). Guided generation with a JSON schema forces exactly one tier label. Measured warm latency ~250–350 ms; requires Apple Intelligence enabled.
+
+**Combination modes**
+
+| Mode | Behavior |
+|------|----------|
+| `priority` (default) | Backends run in order; the first confident verdict wins. `shortCircuitTiers` (default `SIMPLE`, `REASONING`) end evaluation immediately, and a backend below `minConfidence` (default `0.5`) is skipped. A failing backend (module missing, timeout, model unavailable) falls through to the next one. |
+| `vote` | All backends run in parallel; the highest-confidence tier wins. `vote-unanimous` / `vote-contested` in the log shows agreement. |
+
+Shorthand: `"classifier": "bert"` equals `classifiers: ["bert"]`. Omitting both leaves heuristic-only, matching pre-`classifiers` configs exactly.
+
+Common recipes:
+
+```jsonc
+// cheap + accurate: heuristic fast-path, BERT for everything else
+{ "classifiers": ["heuristic", "bert"] }
+
+// BERT first, heuristic as fallback only
+{ "classifiers": ["bert", "heuristic"] }
+
+// privacy-heavy arbitration: heuristic decides most, Apple FM judges the rest
+{ "classifiers": ["heuristic", "apple-fm"], "classifierCombination": "priority" }
+
+// three-way vote
+{ "classifiers": ["heuristic", "bert", "apple-fm"], "classifierCombination": "vote" }
+```
+
+A backend that errors is never fatal: `priority` moves to the next backend, `vote` drops it, and if every backend fails the router falls back to MEDIUM.
 
 ## Installation
 
@@ -131,6 +190,9 @@ Each entry in `triggerModels` needs a matching model in `opencode.json`'s `provi
 | `pinSession` | Pin the first session decision for the whole session (default `false`) |
 | `firstMessageOnly` | Route only the first message of a session |
 | `agents` / `excludeAgents` | Restrict routing to / exclude specific agents |
+| `classifier` / `classifiers` | Backend selection (shorthand / full list). Default: heuristic-only |
+| `classifierCombination` | `priority` (default) or `vote` — see [Classifiers](#classifiers) |
+| `classifierOptions` | Per-backend overrides: `model`, `onnxFile`, `labelToTier`, `timeoutMs`, `minConfidence`, `shortCircuitTiers`, `instructions` |
 
 Top-level options: `enabled` (master switch, default `true`), `notify` (log tier changes, default `true`).
 
