@@ -11,6 +11,34 @@
  */
 
 export type Tier = "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING"
+
+/** Classifier backends and how they combine (see README "Classifiers") */
+export type ClassifierKind = "heuristic" | "bert" | "apple-fm"
+export type ClassifierCombination = "priority" | "vote"
+
+/** Per-backend overrides inside `classifiers` */
+export interface ClassifierConfig {
+  /** Override the default model for this backend.
+   *  bert: HF repo id or local path with onnx/ weights.
+   *  apple-fm: reserved (no model selection on-device). */
+  model?: string
+  /** bert: ONNX file variant inside the repo (e.g. "model_quantized.onnx") */
+  onnxFile?: string
+  /** bert: map pipeline labels to tiers; missing labels → MEDIUM fallback */
+  labelToTier?: Partial<Record<string, Tier>>
+  /** Hard deadline per classify() call in ms (bert default 10000, apple-fm 15000) */
+  timeoutMs?: number
+  /** priority mode: below this confidence the backend is skipped (default 0.5) */
+  minConfidence?: number
+  /** priority mode: tiers that end evaluation immediately (default: SIMPLE, REASONING) */
+  shortCircuitTiers?: Tier[]
+  /** apple-fm: extra instructions prepended to the built-in classification prompt */
+  instructions?: string
+}
+
+/** Optional per-tier variant (e.g. reasoningEffort) applied when routing to a
+ *  tier model. Keyed by tier; models without variants omit the entry. */
+export type TierVariants = Partial<Record<Tier, string>>
 export type DimensionName =
   | "tokenCount"
   | "codePresence"
@@ -47,6 +75,9 @@ export interface RouterConfig {
   triggerModels?: string[]
   /** Tier → model reference ("provider/model-id") */
   tierModels?: Partial<TierModels>
+  /** Tier → variant id (e.g. reasoningEffort) applied on top of tierModels.
+   *  Only models that define `variants` in opencode.json accept them. */
+  tierVariants?: Partial<Record<Tier, string>>
   /** Fallback model when no tier can be determined (or when classifier errors) */
   defaultModel?: string
   /** Display names for tiers (optional; only used in logging) */
@@ -62,6 +93,14 @@ export interface RouterConfig {
   tierBoundaries?: Partial<Record<BoundaryName, number>>
   /** Token count thresholds. Defaults: simple 15, complex 400 */
   tokenThresholds?: Partial<Record<"simple" | "complex", number>>
+  /** Shorthand for `classifiers: ["heuristic"]` (default when omitted) */
+  classifier?: ClassifierKind | ClassifierKind[]
+  /** Classifier backends and their combination strategy. Default: heuristic-only. */
+  classifiers?: ClassifierKind[]
+  /** How multiple classifiers combine. Default: "priority" */
+  classifierCombination?: ClassifierCombination
+  /** Per-backend overrides keyed by kind (bert / apple-fm options) */
+  classifierOptions?: Partial<Record<ClassifierKind, ClassifierConfig>>
   /** Session pinning: after the first request of a session picks a tier, keep that
    *  tier for subsequent turns of the same session. Default: false (route every turn) */
   pinSession?: boolean
@@ -81,6 +120,7 @@ export interface PluginConfig {
   /** Single-router shorthand — equivalent to one entry in `routers`. */
   triggerModels?: string[]
   tierModels?: Partial<TierModels>
+  tierVariants?: TierVariants
   defaultModel?: string
   tierLabels?: Partial<Record<Tier, string>>
   codeKeywords?: string[]
@@ -90,6 +130,10 @@ export interface PluginConfig {
   dimensionWeights?: Partial<Record<DimensionName, number>>
   tierBoundaries?: Partial<Record<BoundaryName, number>>
   tokenThresholds?: Partial<Record<"simple" | "complex", number>>
+  classifier?: ClassifierKind | ClassifierKind[]
+  classifiers?: ClassifierKind[]
+  classifierCombination?: ClassifierCombination
+  classifierOptions?: Partial<Record<ClassifierKind, ClassifierConfig>>
   pinSession?: boolean
   firstMessageOnly?: boolean
   agents?: string[]
@@ -154,6 +198,7 @@ export interface NormalizedRouter {
   name: string
   triggerModels: string[]
   tierModels: TierModels
+  tierVariants: TierVariants
   defaultModel: string
   tierLabels: Partial<Record<Tier, string>>
   codeKeywords: string[]
@@ -163,6 +208,9 @@ export interface NormalizedRouter {
   dimensionWeights: Record<DimensionName, number>
   tierBoundaries: Record<BoundaryName, number>
   tokenThresholds: Record<"simple" | "complex", number>
+  classifiers: ClassifierKind[]
+  classifierCombination: ClassifierCombination
+  classifierOptions: Partial<Record<ClassifierKind, ClassifierConfig>>
   pinSession: boolean
   firstMessageOnly: boolean
   agents: string[] | null
@@ -177,6 +225,18 @@ export interface NormalizedPluginConfig {
 
 const FULL_TIER_DEFAULTS: TierModels = { ...DEFAULT_TIER_MODELS }
 
+const KNOWN_CLASSIFIER_KINDS: readonly ClassifierKind[] = ["heuristic", "bert", "apple-fm"]
+
+function normalizeClassifierKinds(
+  shorthand: ClassifierKind | ClassifierKind[] | undefined,
+  full: ClassifierKind[] | undefined,
+): ClassifierKind[] {
+  const raw = full ?? (shorthand !== undefined ? (Array.isArray(shorthand) ? shorthand : [shorthand]) : undefined)
+  if (!raw || raw.length === 0) return ["heuristic"]
+  const known = raw.filter((kind): kind is ClassifierKind => KNOWN_CLASSIFIER_KINDS.includes(kind))
+  return known.length > 0 ? known : ["heuristic"]
+}
+
 export function normalizeRouter(raw: RouterConfig | undefined, index: number): NormalizedRouter {
   const tierModels = { ...FULL_TIER_DEFAULTS, ...raw?.tierModels }
   return {
@@ -186,6 +246,7 @@ export function normalizeRouter(raw: RouterConfig | undefined, index: number): N
         ? raw.triggerModels.map((m) => m.toLowerCase())
         : DEFAULT_TRIGGER_MODELS.map((m) => m.toLowerCase()),
     tierModels,
+    tierVariants: raw?.tierVariants ?? {},
     defaultModel: raw?.defaultModel ?? tierModels.MEDIUM,
     tierLabels: raw?.tierLabels ?? {},
     codeKeywords: raw?.codeKeywords ?? DEFAULT_CODE_KEYWORDS,
@@ -195,6 +256,9 @@ export function normalizeRouter(raw: RouterConfig | undefined, index: number): N
     dimensionWeights: { ...DEFAULT_DIMENSION_WEIGHTS, ...raw?.dimensionWeights },
     tierBoundaries: { ...DEFAULT_TIER_BOUNDARIES, ...raw?.tierBoundaries },
     tokenThresholds: { ...DEFAULT_TOKEN_THRESHOLDS, ...raw?.tokenThresholds },
+    classifiers: normalizeClassifierKinds(raw?.classifier, raw?.classifiers),
+    classifierCombination: raw?.classifierCombination ?? "priority",
+    classifierOptions: raw?.classifierOptions ?? {},
     pinSession: raw?.pinSession ?? false,
     firstMessageOnly: raw?.firstMessageOnly ?? false,
     agents: raw?.agents && raw.agents.length > 0 ? raw.agents : null,
@@ -212,6 +276,7 @@ export function normalizeConfig(raw: PluginConfig | undefined): NormalizedPlugin
   const hasShorthand =
     !raw?.routers &&
     (raw?.tierModels !== undefined ||
+      raw?.tierVariants !== undefined ||
       raw?.codeKeywords !== undefined ||
       raw?.reasoningKeywords !== undefined ||
       raw?.technicalKeywords !== undefined ||
