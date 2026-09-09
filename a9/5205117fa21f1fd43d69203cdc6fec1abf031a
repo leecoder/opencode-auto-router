@@ -1,0 +1,84 @@
+src/config.ts
+  s_5a7678ee3e9c4b::t_893e86ace824d4 211-213
+  s_5a7678ee3e9c4b::t_f1ced1a88bae43 228-238
+  s_5a7678ee3e9c4b::t_f4e014e2e4918b 259-261
+  s_5a7678ee3e9c4b::t_44741eb66fb7e4 133-136
+  s_5a7678ee3e9c4b::t_b6dbe2f2439b44 15-38
+  s_8a226327db52e4::t_445c1c288a8cef 78-80
+  s_5a7678ee3e9c4b::t_7294bff959901d 96-103
+  s_8a226327db52e4::t_ce798e6e83d6fe 201
+  s_8a226327db52e4::t_dfb28a7d15d599 14,39-41
+  s_8a226327db52e4::t_ee81707e734f71 249
+  s_8a226327db52e4::t_415d2abed501ed 123
+  s_8a226327db52e4::t_d9b28a4540d568 279
+  s_5a7678ee3e9c4b::t_5e5f98f807dd5d 239
+src/index.ts
+  s_5a7678ee3e9c4b::t_01532ffbe229b0 4-5,7-8
+  s_1f9b3b1830b5ad::t_f3b5caa16e57f2 237
+  s_5a7678ee3e9c4b::t_58cc7517ab2f80 125-127,129,175-176,194-195,198
+  s_8a226327db52e4::t_e44daa5581f8a4 180-184,189,196
+  s_5a7678ee3e9c4b::t_3b7d964181d4f9 178
+  s_5a7678ee3e9c4b::t_dbb8bd1f323f01 236
+  s_5a7678ee3e9c4b::t_8c385e00495fb0 75-77
+  s_8a226327db52e4::t_53ba4594a88d0b 25-27
+  s_f6cbbdb4bdb192::t_dafc28ef016380 136-137,149-153
+  s_5a7678ee3e9c4b::t_c42bae4cb8a62e 6,9
+  s_5a7678ee3e9c4b::t_86374369658e0e 65-74,78-113
+  s_8a226327db52e4::t_c8e04f025edc14 2
+  s_8a226327db52e4::t_8aebf5cae9b402 158-163
+  s_5a7678ee3e9c4b::t_a162293ef40b6d 235
+  s_8a226327db52e4::t_55e2d51779fc11 114,117-118,120
+  s_7cad2da50e2733::t_347859cb9952d1 203-210,214-215,217,221-225
+  s_7cad2da50e2733::t_cde3ee61dbde28 216,218-220
+  s_5a7678ee3e9c4b::t_0f2083e59181ca 213
+  s_8a226327db52e4::t_1aadd80900e228 46-57
+  s_8a226327db52e4::t_9e20df52449a7f 115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a95205117fa21f1fd43d69203cdc6fec1abf031a",
+  "prompts": {},
+  "sessions": {
+    "s_1f9b3b1830b5ad": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa07786aeffe4Il5a94g9Ph1Jg",
+        "model": "auto-dgc"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_5a7678ee3e9c4b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f7ab52b98ffeb6ghrhCvmosF6b",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_7cad2da50e2733": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_fa07786aeffe4Il5a94g9Ph1Jg",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_8a226327db52e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f81b88fe1ffeyMyKA7aXpR2niq",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_f6cbbdb4bdb192": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f81b88fe1ffeyMyKA7aXpR2niq",
+        "model": "claude-opus-4-5"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
