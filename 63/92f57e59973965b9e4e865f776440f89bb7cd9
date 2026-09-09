@@ -1,0 +1,22 @@
+test/classifiers.test.mjs
+  s_5a7678ee3e9c4b::t_5fb58be3fff09d 100-101,103
+  s_5a7678ee3e9c4b::t_2ea119d80c8610 3-4
+  s_5a7678ee3e9c4b::t_136ccefbcd2db0 48,53
+  s_5a7678ee3e9c4b::t_6390b2e1bdfe6f 1-2,5-47,49-52,54-99,102,104-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6392f57e59973965b9e4e865f776440f89bb7cd9",
+  "prompts": {},
+  "sessions": {
+    "s_5a7678ee3e9c4b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f7ab52b98ffeb6ghrhCvmosF6b",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
