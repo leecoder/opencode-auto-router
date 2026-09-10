@@ -267,7 +267,6 @@ test("chat.message: bert-configured router still routes via heuristic path when 
       routers: [
         {
           name: "hybrid",
-          triggerModels: ["auto-router/hybrid"],
           classifiers: ["bert", "heuristic"],
           tierModels: {
             SIMPLE: "litellm/glm-4.7-flash",
@@ -298,7 +297,7 @@ test("chat.message: default heuristic-only router unchanged", async () => {
     normalizeConfig({
       enabled: true,
       notify: false,
-      routers: [{ name: "legacy", triggerModels: ["auto-router/legacy"] }],
+      routers: [{ name: "legacy" }],
     }),
   )
   const output = {
