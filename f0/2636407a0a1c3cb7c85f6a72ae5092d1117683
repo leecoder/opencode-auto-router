@@ -1,0 +1,33 @@
+src/config-loader.ts
+  s_8a226327db52e4::t_0918dee5e7f0c2 1-2
+  s_8739d965866e4e::t_e41a4e17d77d2d 4,16,24,31,83
+  s_8a226327db52e4::t_7d68f3c7c1b3e7 45-50,55-56
+src/config.ts
+  s_8739d965866e4e::t_e41a4e17d77d2d 8-10,71-72,74,140,309
+  s_8739d965866e4e::t_76e03f497b455f 42-46,76-77,121,239-250,254
+  s_8739d965866e4e::t_565a61c6cd4c6c 288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f02636407a0a1c3cb7c85f6a72ae5092d1117683",
+  "prompts": {},
+  "sessions": {
+    "s_8739d965866e4e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f77658790ffeF3t87dZUWYMYg3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_8a226327db52e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f81b88fe1ffeyMyKA7aXpR2niq",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
