@@ -4,12 +4,11 @@
   "routers": [
     {
       "name": "dgc",
-      "triggerModels": ["auto-router/glm-ds-cld"],
       "pinSession": true,
       "tierModels": {
         "SIMPLE": "litellm/databricks/databricks-glm-5-3-flash",
         "MEDIUM": "litellm/databricks/databricks-deepseek-v4-flash-0731",
-        "COMPLEX": "litellm/sonnet-5",
+        "COMPLEX": { "model": "litellm/databricks/databricks-gemini-3-8-flash", "variant": "high" },
         "REASONING": "litellm/opus-5"
       }
     }

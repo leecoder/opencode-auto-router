@@ -1,11 +1,11 @@
 # opencode-auto-router
 
-Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/glm-ds-cld` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Applied via the `chat.message` hook.
+Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/{name}` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Applied via the `chat.message` hook.
 
 Classification is pluggable: a LiteLLM-ported heuristic scorer (default), a local BERT-style ONNX model, or the macOS on-device Apple Foundation Model — usable alone or combined (priority chain / confidence vote).
 
 ```
-TUI selection ─┬─ auto-router/glm-ds-cld (local router model)
+TUI selection ─┬─ auto-router/{name} (local router model)
                │      └→ chat.message hook → complexity scoring → tier model
                └─ any other model → used as-is (routing skipped)
 ```
@@ -14,7 +14,7 @@ OpenCode keeps the full session, system prompt, tools, and agent context intact 
 
 ## How it works
 
-1. **Trigger gate**: the session's selected model is checked against each router's `triggerModels`. No match → the plugin does nothing for that message.
+1. **Trigger gate**: the session's selected model is checked against `auto-router/{name}` for each router. No match → the plugin does nothing for that message.
 2. **Classification**: the router's classifier backends produce a tier. Default is the heuristic scorer, which rates the request across 7 dimensions (LiteLLM defaults):
 
 | Dimension | Weight |
@@ -98,7 +98,7 @@ Two registrations are needed — the plugin and a local "router model" that acts
     "auto-router": {
       "npm": "@ai-sdk/openai-compatible",
       "models": {
-        "glm-ds-cld": {
+        "dgc": {
           "name": "Auto Router (GLM/DS/Claude tiers)",
           "limit": { "context": 1048576, "output": 128000 },
           "modalities": { "input": ["text", "image"], "output": ["text"] }
@@ -122,12 +122,11 @@ No `options`/`baseURL` needed — `options` is optional in the provider schema, 
   "routers": [
     {
       "name": "dgc",
-      "triggerModels": ["auto-router/glm-ds-cld"],
       "pinSession": true,
       "tierModels": {
         "SIMPLE": "litellm/databricks/databricks-glm-5-3-flash",
         "MEDIUM": "litellm/databricks/databricks-deepseek-v4-flash-0731",
-        "COMPLEX": "litellm/sonnet-5",
+        "COMPLEX": { "model": "litellm/sonnet-5", "variant": "high" },
         "REASONING": "litellm/opus-5"
       }
     }
@@ -137,14 +136,13 @@ No `options`/`baseURL` needed — `options` is optional in the provider schema, 
 
 ### Multiple routers
 
-Register as many routing tables as you like — each with its own trigger models and tier mapping. The first router whose `triggerModels` match the selected model wins:
+Register as many routing tables as you like — each with its own name and tier mapping. Selecting `auto-router/{name}` activates that routing table:
 
 ```json
 {
   "routers": [
     {
       "name": "cheap",
-      "triggerModels": ["auto-router/glm-ds-cld"],
       "tierModels": {
         "SIMPLE": "litellm/glm-4.7-flash",
         "MEDIUM": "litellm/glm-5",
@@ -154,7 +152,6 @@ Register as many routing tables as you like — each with its own trigger models
     },
     {
       "name": "premium",
-      "triggerModels": ["auto-router/premium"],
       "tierModels": {
         "SIMPLE": "litellm/sonnet-5",
         "MEDIUM": "litellm/sonnet-5",
@@ -166,22 +163,22 @@ Register as many routing tables as you like — each with its own trigger models
 }
 ```
 
-Each entry in `triggerModels` needs a matching model in `opencode.json`'s `provider.auto-router.models` (or any other provider) so it can be picked in the TUI. Single-router shorthand also works — top-level `tierModels` / keyword fields form one implicit router when `routers` is absent.
+Each router is selected as `auto-router/{name}` and needs a matching model with that id in `opencode.json`'s `provider.auto-router.models`. Single-router shorthand also works — top-level `tierModels` / keyword fields form one implicit router when `routers` is absent; its default name is `router-0`.
 
 ### Which model should you select in OpenCode?
 
 | Selection | Behavior |
 |-----------|----------|
-| `auto-router/glm-ds-cld` (or any configured trigger) | Routed per-message to the tier the classifier picks |
+| `auto-router/{name}` (for example `auto-router/dgc`) | Routed per-message to the tier the classifier picks |
 | Any other model (`litellm/auto-dgc`, `kiro/claude-sonnet-4-6`, …) | Used exactly as you picked — routing never touches it |
 
 ### Router options
 
 | Option | Description |
 |--------|-------------|
-| `name` | Display name in logs (default `router-0`, `router-1`, …) |
-| `triggerModels` | Session models that activate this router (default `["auto-router/glm-ds-cld"]`) |
+| `name` | Router name and model id suffix for `auto-router/{name}` (default `router-0`, `router-1`, …) |
 | `tierModels` | Tier → `provider/model-id` mapping (defaults: the GLM/DS/Claude mapping above) |
+| `tierModels` values | Use a string, or `{ "model": "provider/model-id", "variant": "..." }` to keep the variant beside the model |
 | `defaultModel` | Fallback when no tier can be determined (default: `tierModels.MEDIUM`) |
 | `codeKeywords` / `reasoningKeywords` / `technicalKeywords` / `simpleKeywords` | Keyword list overrides (defaults: LiteLLM's) |
 | `dimensionWeights` | Scoring weight overrides |
