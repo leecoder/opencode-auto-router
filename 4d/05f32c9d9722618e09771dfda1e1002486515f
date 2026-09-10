@@ -1,0 +1,56 @@
+test/classifiers.test.mjs
+  s_8739d965866e4e::t_e61407603c9aef 300
+test/router.test.mjs
+  s_8a226327db52e4::t_ef8bf0721fad3b 296,327-337
+  s_8739d965866e4e::t_d5de619517aff1 217,220-221,224-226,228,230,232-258,260-264,280,282-283,285,287-289,291-292,298,301-305,321,323-324,326,339-367
+  s_8739d965866e4e::t_565a61c6cd4c6c 4,101,107,132,146,150,153-154,157,167-168
+  s_1f9b3b1830b5ad::t_c2f8a09fd68bdf 6,173-211
+  s_8739d965866e4e::t_61fbc4c89345f5 105,122
+  s_8739d965866e4e::t_aadb973f25eb61 218-219
+  s_8739d965866e4e::t_0fec2410c5ccc7 222-223
+  s_8739d965866e4e::t_fab19d57307cc4 227
+  s_8739d965866e4e::t_5b5fd751646413 229
+  s_8739d965866e4e::t_bab1a5fe1dde7a 231
+  s_8739d965866e4e::t_9e51c7702426c3 259
+  s_8739d965866e4e::t_6d9b011543fc75 265-267,277-279
+  s_8739d965866e4e::t_ff50b10f25a2ea 281
+  s_8739d965866e4e::t_f146cd684c18be 284
+  s_8739d965866e4e::t_cf6ce93f542a8b 286
+  s_8739d965866e4e::t_4a075bd1376393 290
+  s_8739d965866e4e::t_d7b1ccbda09d01 299-300
+  s_8739d965866e4e::t_069602bb35f5d4 306-308,318-320
+  s_8739d965866e4e::t_e53dd0059f6df0 322
+  s_8739d965866e4e::t_127ea68bbfd0a8 325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4d05f32c9d9722618e09771dfda1e1002486515f",
+  "prompts": {},
+  "sessions": {
+    "s_1f9b3b1830b5ad": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa07786aeffe4Il5a94g9Ph1Jg",
+        "model": "auto-dgc"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_8739d965866e4e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f77658790ffeF3t87dZUWYMYg3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_8a226327db52e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f81b88fe1ffeyMyKA7aXpR2niq",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
