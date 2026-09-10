@@ -129,7 +129,6 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
   const route = async (input: ChatMessageInput, output: ChatMessageOutput): Promise<void> => {
     if (!config.enabled) return
 
-    // Gate 1: the session's selected model must match a router's triggerModels.
     // Any other selection passes through untouched — manual model choice wins.
     const router = findRouterForModel({
       config,

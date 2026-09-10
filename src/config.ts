@@ -5,9 +5,9 @@
  * LiteLLM deployment can be carried over almost verbatim (keywords, weights,
  * boundaries) plus the model-per-tier mapping this plugin applies locally.
  *
- * Routing only fires when the session's selected model matches one of a
- * router's `triggerModels` — picking any other model in the TUI bypasses
- * routing entirely, so a manually chosen model is always respected.
+ * Routing only fires when the session's selected model is `auto-router/{name}`
+ * for one of the configured routers — picking any other model in the TUI
+ * bypasses routing entirely, so a manually chosen model is always respected.
  */
 
 export type Tier = "SIMPLE" | "MEDIUM" | "COMPLEX" | "REASONING"
@@ -39,6 +39,11 @@ export interface ClassifierConfig {
 /** Optional per-tier variant (e.g. reasoningEffort) applied when routing to a
  *  tier model. Keyed by tier; models without variants omit the entry. */
 export type TierVariants = Partial<Record<Tier, string>>
+export interface TierModelSetting {
+  model: string
+  variant?: string
+}
+export type TierModelValue = string | TierModelSetting
 export type DimensionName =
   | "tokenCount"
   | "codePresence"
@@ -56,8 +61,6 @@ export const DEFAULT_TIER_MODELS: TierModels = {
   REASONING: "litellm/opus-5",
 }
 
-export const DEFAULT_TRIGGER_MODELS = ["auto-router/glm-ds-cld"]
-
 export interface TierModels {
   SIMPLE: string
   MEDIUM: string
@@ -65,16 +68,13 @@ export interface TierModels {
   REASONING: string
 }
 
-/** One named routing table. `triggerModels` gates whether it applies at all:
- *  when the session's selected model is one of them, tiers take over; any
- *  other selected model passes through untouched. */
+/** One named routing table. The model `auto-router/{name}` gates whether it
+ * applies at all; any other selected model passes through untouched. */
 export interface RouterConfig {
-  /** Display name (used in logs) */
+  /** Router name and the model id exposed as `auto-router/{name}`. */
   name?: string
-  /** Session models that activate this router. Default: ["auto-router/glm-ds-cld"] */
-  triggerModels?: string[]
-  /** Tier → model reference ("provider/model-id") */
-  tierModels?: Partial<TierModels>
+  /** Tier → model reference or model plus variant. */
+  tierModels?: Partial<Record<Tier, TierModelValue>>
   /** Tier → variant id (e.g. reasoningEffort) applied on top of tierModels.
    *  Only models that define `variants` in opencode.json accept them. */
   tierVariants?: Partial<Record<Tier, string>>
@@ -118,8 +118,7 @@ export interface PluginConfig {
   /** Log tier changes. Default: true */
   notify?: boolean
   /** Single-router shorthand — equivalent to one entry in `routers`. */
-  triggerModels?: string[]
-  tierModels?: Partial<TierModels>
+  tierModels?: Partial<Record<Tier, TierModelValue>>
   tierVariants?: TierVariants
   defaultModel?: string
   tierLabels?: Partial<Record<Tier, string>>
@@ -138,7 +137,7 @@ export interface PluginConfig {
   firstMessageOnly?: boolean
   agents?: string[]
   excludeAgents?: string[]
-  /** Named routing tables. First router whose triggerModels match wins. */
+  /** Named routing tables. The first router whose `auto-router/{name}` model matches wins. */
   routers?: RouterConfig[]
 }
 
@@ -196,7 +195,6 @@ export const DEFAULT_TOKEN_THRESHOLDS: Record<"simple" | "complex", number> = {
 
 export interface NormalizedRouter {
   name: string
-  triggerModels: string[]
   tierModels: TierModels
   tierVariants: TierVariants
   defaultModel: string
@@ -238,15 +236,22 @@ function normalizeClassifierKinds(
 }
 
 export function normalizeRouter(raw: RouterConfig | undefined, index: number): NormalizedRouter {
-  const tierModels = { ...FULL_TIER_DEFAULTS, ...raw?.tierModels }
+  const tierModels = { ...FULL_TIER_DEFAULTS }
+  const tierVariants = { ...(raw?.tierVariants ?? {}) }
+  for (const tier of Object.keys(tierModels) as Tier[]) {
+    const setting = raw?.tierModels?.[tier]
+    if (!setting) continue
+    if (typeof setting === "string") {
+      tierModels[tier] = setting
+      continue
+    }
+    tierModels[tier] = setting.model
+    if (setting.variant !== undefined) tierVariants[tier] = setting.variant
+  }
   return {
     name: raw?.name ?? `router-${index}`,
-    triggerModels:
-      raw?.triggerModels && raw.triggerModels.length > 0
-        ? raw.triggerModels.map((m) => m.toLowerCase())
-        : DEFAULT_TRIGGER_MODELS.map((m) => m.toLowerCase()),
     tierModels,
-    tierVariants: raw?.tierVariants ?? {},
+    tierVariants,
     defaultModel: raw?.defaultModel ?? tierModels.MEDIUM,
     tierLabels: raw?.tierLabels ?? {},
     codeKeywords: raw?.codeKeywords ?? DEFAULT_CODE_KEYWORDS,
@@ -280,8 +285,7 @@ export function normalizeConfig(raw: PluginConfig | undefined): NormalizedPlugin
       raw?.codeKeywords !== undefined ||
       raw?.reasoningKeywords !== undefined ||
       raw?.technicalKeywords !== undefined ||
-      raw?.simpleKeywords !== undefined ||
-      raw?.triggerModels !== undefined)
+      raw?.simpleKeywords !== undefined)
   if (hasShorthand) {
     const { enabled: _enabled, notify: _notify, routers: _routers, ...rest } = raw as PluginConfig & RouterConfig
     routers.push(rest)

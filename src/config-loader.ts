@@ -1,5 +1,7 @@
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import type { NormalizedPluginConfig, NormalizedRouter, PluginConfig, RouterConfig, TierModels } from "./config"
-import { DEFAULT_TIER_MODELS, DEFAULT_TRIGGER_MODELS, modelKey, normalizeConfig, normalizeRouter } from "./config"
+import { DEFAULT_TIER_MODELS, modelKey, normalizeConfig, normalizeRouter } from "./config"
 
 export type {
   BoundaryName,
@@ -11,7 +13,7 @@ export type {
   Tier,
   TierModels,
 } from "./config"
-export { DEFAULT_TIER_MODELS, DEFAULT_TRIGGER_MODELS, modelKey, normalizeConfig, normalizeRouter }
+export { DEFAULT_TIER_MODELS, modelKey, normalizeConfig, normalizeRouter }
 
 export interface FindRouterInput {
   config: NormalizedPluginConfig
@@ -19,14 +21,14 @@ export interface FindRouterInput {
   modelID?: string
 }
 
-/** First router whose triggerModels contain the session's selected model.
+/** First router whose `auto-router/{name}` model matches the session's selection.
  *  Null when the selection matches no router — routing stays off for that
  *  turn and the picked model is used as-is. */
 export function findRouterForModel(input: FindRouterInput): NormalizedRouter | null {
   const key = modelKey(input.providerID, input.modelID)
   if (!key) return null
   for (const router of input.config.routers) {
-    if (router.triggerModels.includes(key)) return router
+    if (modelKey("auto-router", router.name) === key) return router
   }
   return null
 }
@@ -39,22 +41,19 @@ export interface FoundConfigFile {
 }
 
 export function findConfigFile(): FoundConfigFile | null {
-  const fs = require("fs") as typeof import("fs")
-  const path = require("path") as typeof import("path")
-
   const candidates = [
-    path.join(process.cwd(), ".opencode", CONFIG_FILENAMES[0]),
-    path.join(process.cwd(), ".opencode", CONFIG_FILENAMES[1]),
-    path.join(process.cwd(), CONFIG_FILENAMES[0]),
-    path.join(process.env.HOME ?? "~", ".config", "opencode", CONFIG_FILENAMES[0]),
-    path.join(process.env.HOME ?? "~", ".config", "opencode", CONFIG_FILENAMES[1]),
-    path.join(process.env.HOME ?? "~", ".opencode", CONFIG_FILENAMES[0]),
+    join(process.cwd(), ".opencode", CONFIG_FILENAMES[0]),
+    join(process.cwd(), ".opencode", CONFIG_FILENAMES[1]),
+    join(process.cwd(), CONFIG_FILENAMES[0]),
+    join(process.env.HOME ?? "~", ".config", "opencode", CONFIG_FILENAMES[0]),
+    join(process.env.HOME ?? "~", ".config", "opencode", CONFIG_FILENAMES[1]),
+    join(process.env.HOME ?? "~", ".opencode", CONFIG_FILENAMES[0]),
   ]
 
   for (const candidate of candidates) {
     try {
-      if (fs.existsSync(candidate)) {
-        return { path: candidate, raw: fs.readFileSync(candidate, "utf-8") }
+      if (existsSync(candidate)) {
+        return { path: candidate, raw: readFileSync(candidate, "utf-8") }
       }
     } catch {
       // keep scanning
