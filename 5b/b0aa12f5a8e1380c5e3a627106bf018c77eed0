@@ -1,0 +1,25 @@
+README.md
+  s_8739d965866e4e::t_61fbc4c89345f5 3,8
+  s_8739d965866e4e::t_fb2c244ec20a9b 101
+  s_8739d965866e4e::t_d5de619517aff1 129,181
+  s_8739d965866e4e::t_6fe75ef5a6fa46 17,139,166,172,179,206
+opencode-auto-router.json
+  s_8739d965866e4e::t_e41a4e17d77d2d 16
+  s_8739d965866e4e::t_d5de619517aff1 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5bb0aa12f5a8e1380c5e3a627106bf018c77eed0",
+  "prompts": {},
+  "sessions": {
+    "s_8739d965866e4e": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f77658790ffeF3t87dZUWYMYg3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
