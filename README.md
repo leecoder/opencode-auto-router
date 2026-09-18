@@ -94,7 +94,7 @@ Two registrations are needed — the plugin and a local "router model" that acts
 // opencode.json (global or project)
 {
   "plugin": [
-    "git+https://github.com/leecoder/opencode-auto-router.git#v0.1.1"
+    "git+https://github.com/leecoder/opencode-auto-router.git#v0.1.2"
   ],
   "provider": {
     "auto-router": {
@@ -111,9 +111,10 @@ Two registrations are needed — the plugin and a local "router model" that acts
 }
 ```
 
-The GitHub plugin reference is pinned to a release tag. Git installs run the
-package's `prepare` script, which builds the ignored `dist/` directory before
-OpenCode loads the plugin.
+The GitHub plugin reference is pinned to a release tag. The release includes
+the built `dist/` directory because OpenCode may block dependency lifecycle
+scripts during Git installs. The `prepare` script remains available for local
+source checkouts.
 
 No `options`/`baseURL` needed — `options` is optional in the provider schema, and the hook swaps the model before any request is built, so a URL is never used. If the plugin is disabled and you select the router model anyway, OpenCode fails fast with `"undefined/chat/completions" cannot be parsed as a URL` — a clear signal the router isn't active.
 
