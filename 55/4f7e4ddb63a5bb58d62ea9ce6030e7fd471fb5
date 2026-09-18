@@ -1,0 +1,19 @@
+test/classifiers.test.mjs
+  s_64f9fd5fe7f3b7::t_f759cecc5fb9e5 271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "554f7e4ddb63a5bb58d62ea9ce6030e7fd471fb5",
+  "prompts": {},
+  "sessions": {
+    "s_64f9fd5fe7f3b7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6abba849ffeGALPeNMhcceNAn",
+        "model": "auto-dgc"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
