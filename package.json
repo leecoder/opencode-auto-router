@@ -1,6 +1,6 @@
 {
   "name": "opencode-auto-router",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Complexity-based auto router for OpenCode — routes each user message to SIMPLE/MEDIUM/COMPLEX/REASONING model tiers via the chat.message hook (LiteLLM complexity_router algorithm port)",
   "type": "module",
   "main": "./dist/index.js",

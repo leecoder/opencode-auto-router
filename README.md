@@ -94,7 +94,7 @@ Two registrations are needed — the plugin and a local "router model" that acts
 // opencode.json (global or project)
 {
   "plugin": [
-    "git+https://github.com/leecoder/opencode-auto-router.git#v0.1.2"
+    "github:leecoder/opencode-auto-router#v0.1.3"
   ],
   "provider": {
     "auto-router": {
