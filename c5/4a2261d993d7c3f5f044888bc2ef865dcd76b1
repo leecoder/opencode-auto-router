@@ -1,0 +1,18 @@
+README.md
+  h_dc03a1b36fc837 97
+package-lock.json
+  h_dc03a1b36fc837 3,9
+package.json
+  h_dc03a1b36fc837 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c54a2261d993d7c3f5f044888bc2ef865dcd76b1",
+  "prompts": {},
+  "humans": {
+    "h_dc03a1b36fc837": {
+      "author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
