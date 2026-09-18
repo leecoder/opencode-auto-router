@@ -1,0 +1,22 @@
+package.json
+  s_64f9fd5fe7f3b7::t_7ffe30e49b5e50 3,20
+README.md
+  s_64f9fd5fe7f3b7::t_7ffe30e49b5e50 96-98,114-116
+  s_64f9fd5fe7f3b7::t_2bda9ffc33e8c8 117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "60d6c737f90341a776c1c44751a2a122ad1bf2dc",
+  "prompts": {},
+  "sessions": {
+    "s_64f9fd5fe7f3b7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6abba849ffeGALPeNMhcceNAn",
+        "model": "auto-dgc"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
