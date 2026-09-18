@@ -268,6 +268,7 @@ test("chat.message: bert-configured router still routes via heuristic path when 
         {
           name: "hybrid",
           classifiers: ["bert", "heuristic"],
+          classifierOptions: { bert: { model: "/tmp/opencode-auto-router-missing-model" } },
           tierModels: {
             SIMPLE: "litellm/glm-4.7-flash",
             MEDIUM: "litellm/glm-5",

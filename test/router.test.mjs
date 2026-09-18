@@ -172,43 +172,6 @@ test("defaults: router name is router-0 and tiers are the documented mapping", (
   assert.equal(DEFAULT_TIER_MODELS.REASONING, "litellm/opus-5")
 })
 
-// --- model-specific sampling parameter handling ---
-
-test("chat.params strips sampling params for Databricks Gemini 3.8 Flash", async () => {
-  const hooks = createAutoRouter()
-  const params = { temperature: 0.2, topP: 0.8, topK: 20, maxOutputTokens: 1000 }
-
-  await hooks["chat.params"](
-    { model: { providerID: "litellm", modelID: "databricks/databricks-gemini-3-8-flash" } },
-    params,
-  )
-
-  assert.deepEqual(params, { maxOutputTokens: 1000 })
-})
-
-test("chat.params preserves sampling params for non-Gemini models", async () => {
-  const hooks = createAutoRouter()
-  const params = { temperature: 0.2, topP: 0.8, topK: 20, maxOutputTokens: 1000 }
-
-  await hooks["chat.params"](
-    { model: { providerID: "litellm", modelID: "databricks/databricks-gemini-3-flash" } },
-    params,
-  )
-
-  assert.deepEqual(params, { temperature: 0.2, topP: 0.8, topK: 20, maxOutputTokens: 1000 })
-})
-
-test("chat.params preserves sampling params for unrelated providers", async () => {
-  const hooks = createAutoRouter()
-  const params = { temperature: 0.2, topP: 0.8, topK: 20 }
-
-  await hooks["chat.params"](
-    { model: { providerID: "openai", modelID: "gpt-5.6-luna" } },
-    params,
-  )
-
-  assert.deepEqual(params, { temperature: 0.2, topP: 0.8, topK: 20 })
-})
 // --- tier variant routing (reasoningEffort etc.) ---
 
 test("normalizeRouter: tierVariants defaults to empty map", () => {

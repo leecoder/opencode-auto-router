@@ -199,29 +199,9 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
     }
   }
 
-  // Sampling params that the routed tier model rejects. Databricks-hosted
-  // gemini-3.8-flash rejects top_p, top_k and temperature outright, while
-  // opencode's transform injects them based on the "gemini" model-id prefix.
-  // chat.params runs after the model swap, so params are stripped per tier here.
-  const stripSampling: Record<string, boolean> = {
-    "litellm/databricks/databricks-gemini-3-8-flash": true,
-  }
-
   return {
     "chat.message": async (input: unknown, output: unknown) => {
       await route(input as ChatMessageInput, output as ChatMessageOutput)
-    },
-    "chat.params": async (input: unknown, output: unknown) => {
-      const model = (input as { model?: { providerID?: string; modelID?: string; id?: string } }).model
-      if (!model) return
-      const modelID = model.modelID ?? model.id
-      if (!model.providerID || !modelID) return
-      const ref = `${model.providerID}/${modelID}`.toLowerCase()
-      if (!stripSampling[ref]) return
-      const params = output as { temperature?: number; topP?: number; topK?: number }
-      delete params.temperature
-      delete params.topP
-      delete params.topK
     },
   }
 }
