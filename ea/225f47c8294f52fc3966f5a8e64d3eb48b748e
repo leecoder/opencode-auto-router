@@ -1,0 +1,51 @@
+dist/config-loader.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-22
+dist/config-loader.d.ts
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-21
+dist/chunk-Q4MCVQEK.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-120
+dist/index.d.ts
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-155
+dist/chunk-KN2NSH7R.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-56
+dist/chunk-3H3TGZND.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-231
+dist/config.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-26
+README.md
+  s_64f9fd5fe7f3b7::t_2af1695c03f7db 97,114-117
+dist/config.d.ts
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-162
+package.json
+  s_64f9fd5fe7f3b7::t_2af1695c03f7db 3
+dist/classifier.d.ts
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-48
+dist/index.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-426
+dist/classifier.js
+  s_a0ff808cadf856::t_14c5fc62a16adf 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ea225f47c8294f52fc3966f5a8e64d3eb48b748e",
+  "prompts": {},
+  "sessions": {
+    "s_64f9fd5fe7f3b7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6abba849ffeGALPeNMhcceNAn",
+        "model": "auto-dgc"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_a0ff808cadf856": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f6abba849ffeGALPeNMhcceNAn",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
