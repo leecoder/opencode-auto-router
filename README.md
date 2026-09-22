@@ -94,7 +94,7 @@ Two registrations are needed — the plugin and a local "router model" that acts
 // opencode.json (global or project)
 {
   "plugin": [
-    "github:leecoder/opencode-auto-router#v0.1.3"
+    "opencode-auto-router"
   ],
   "provider": {
     "auto-router": {
@@ -111,9 +111,9 @@ Two registrations are needed — the plugin and a local "router model" that acts
 }
 ```
 
-The GitHub plugin reference is pinned to a release tag. The release includes
-the built `dist/` directory because OpenCode may block dependency lifecycle
-scripts during Git installs. The `prepare` script remains available for local
+The plugin is installed from npm. The published package includes the built
+`dist/` directory because OpenCode may block dependency lifecycle scripts
+during plugin installs. The `prepare` script remains available for local
 source checkouts.
 
 No `options`/`baseURL` needed — `options` is optional in the provider schema, and the hook swaps the model before any request is built, so a URL is never used. If the plugin is disabled and you select the router model anyway, OpenCode fails fast with `"undefined/chat/completions" cannot be parsed as a URL` — a clear signal the router isn't active.
@@ -172,6 +172,27 @@ Register as many routing tables as you like — each with its own name and tier 
 
 Each router is selected as `auto-router/{name}` and needs a matching model with that id in `opencode.json`'s `provider.auto-router.models`. Single-router shorthand also works — top-level `tierModels` / keyword fields form one implicit router when `routers` is absent; its default name is `router-0`.
 
+### Tier model fallback
+
+Add an ordered fallback chain inside the tier's model object:
+
+```json
+{
+  "tierModels": {
+    "COMPLEX": {
+      "model": "openai/gpt-6-astra",
+      "variant": "low",
+      "fallbacks": [
+        "litellm/sonnet-5",
+        { "model": "litellm/opus-5", "variant": "high" }
+      ]
+    }
+  }
+}
+```
+
+When OpenCode publishes `session.error` for the selected tier model, the router remembers that model as failed. On the next user retry in the same session and tier, it selects the next unfailed entry. A successful assistant completion clears the failure state and restores the primary tier model on the following request. Because the current plugin hook runs before the model request, fallback is not a transparent mid-request retry; use a gateway-side fallback when the same request must be retried automatically.
+
 ### Which model should you select in OpenCode?
 
 | Selection | Behavior |
@@ -185,7 +206,7 @@ Each router is selected as `auto-router/{name}` and needs a matching model with 
 |--------|-------------|
 | `name` | Router name and model id suffix for `auto-router/{name}` (default `router-0`, `router-1`, …) |
 | `tierModels` | Tier → `provider/model-id` mapping (defaults: the GLM/DS/Claude mapping above) |
-| `tierModels` values | Use a string, or `{ "model": "provider/model-id", "variant": "..." }` to keep the variant beside the model |
+| `tierModels` values | Use a string, or `{ "model": "provider/model-id", "variant": "...", "fallbacks": [...] }` to colocate ordered fallbacks with the tier |
 | `defaultModel` | Fallback when no tier can be determined (default: `tierModels.MEDIUM`) |
 | `codeKeywords` / `reasoningKeywords` / `technicalKeywords` / `simpleKeywords` | Keyword list overrides (defaults: LiteLLM's) |
 | `dimensionWeights` | Scoring weight overrides |
