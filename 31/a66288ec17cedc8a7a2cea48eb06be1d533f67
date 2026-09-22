@@ -1,0 +1,19 @@
+README.md
+  s_e50177ff2fa113::t_18d7bd07df7e98 194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "31a66288ec17cedc8a7a2cea48eb06be1d533f67",
+  "prompts": {},
+  "sessions": {
+    "s_e50177ff2fa113": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4ca33bb4ffegW3qHYchyvUC6i",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
