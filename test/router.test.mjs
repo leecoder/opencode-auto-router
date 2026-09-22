@@ -466,3 +466,164 @@ test("chat.message: failed target state is isolated by tier", async () => {
   await hooks["chat.message"](input, medium)
   assert.deepEqual(medium.message.model, { providerID: "litellm", modelID: "shared-primary" })
 })
+
+test("chat.message: failed target state is isolated by session", async () => {
+  const hooks = createAutoRouterWithConfig(
+    normalizeConfig({
+      enabled: true,
+      notify: false,
+      routers: [
+        {
+          name: "session-isolated-fallback",
+          pinSession: true,
+          tierModels: {
+            SIMPLE: {
+              model: "litellm/session-primary",
+              fallbacks: ["litellm/session-secondary"],
+            },
+          },
+        },
+      ],
+    }),
+  )
+
+  const firstInput = {
+    sessionID: "s-first",
+    agent: "build",
+    model: { providerID: "auto-router", modelID: "session-isolated-fallback" },
+  }
+  const first = { message: { model: { ...firstInput.model } }, parts: [{ type: "text", text: "hello" }] }
+  await hooks["chat.message"](firstInput, first)
+  assert.deepEqual(first.message.model, { providerID: "litellm", modelID: "session-primary" })
+
+  await hooks.event({
+    event: {
+      type: "session.error",
+      properties: { sessionID: "s-first", error: { name: "UnknownError", message: "primary unavailable" } },
+    },
+  })
+
+  const firstRetry = { message: { model: { ...firstInput.model } }, parts: [{ type: "text", text: "retry" }] }
+  await hooks["chat.message"](firstInput, firstRetry)
+  assert.deepEqual(firstRetry.message.model, { providerID: "litellm", modelID: "session-secondary" })
+
+  const secondInput = { ...firstInput, sessionID: "s-second" }
+  const second = { message: { model: { ...secondInput.model } }, parts: [{ type: "text", text: "hello" }] }
+  await hooks["chat.message"](secondInput, second)
+  assert.deepEqual(second.message.model, { providerID: "litellm", modelID: "session-primary" })
+})
+
+test("chat.message: terminal errors consume pending attempts in order", async () => {
+  const hooks = createAutoRouterWithConfig(
+    normalizeConfig({
+      enabled: true,
+      notify: false,
+      routers: [
+        {
+          name: "first-router",
+          pinSession: true,
+          tierModels: {
+            SIMPLE: {
+              model: "litellm/first-primary",
+              fallbacks: ["litellm/first-secondary"],
+            },
+          },
+        },
+        {
+          name: "second-router",
+          pinSession: true,
+          tierModels: {
+            SIMPLE: {
+              model: "litellm/second-primary",
+              fallbacks: ["litellm/second-secondary"],
+            },
+          },
+        },
+      ],
+    }),
+  )
+
+  const firstInput = {
+    sessionID: "s-overlap",
+    agent: "build",
+    model: { providerID: "auto-router", modelID: "first-router" },
+  }
+  const secondInput = { ...firstInput, model: { providerID: "auto-router", modelID: "second-router" } }
+  const first = { message: { model: { ...firstInput.model } }, parts: [{ type: "text", text: "hello" }] }
+  const second = { message: { model: { ...secondInput.model } }, parts: [{ type: "text", text: "hello" }] }
+  await hooks["chat.message"](firstInput, first)
+  await hooks["chat.message"](secondInput, second)
+  assert.deepEqual(first.message.model, { providerID: "litellm", modelID: "first-primary" })
+  assert.deepEqual(second.message.model, { providerID: "litellm", modelID: "second-primary" })
+
+  await hooks.event({
+    event: {
+      type: "session.error",
+      properties: { sessionID: "s-overlap", error: { name: "UnknownError", message: "first unavailable" } },
+    },
+  })
+
+  const firstRetry = { message: { model: { ...firstInput.model } }, parts: [{ type: "text", text: "retry" }] }
+  await hooks["chat.message"](firstInput, firstRetry)
+  assert.deepEqual(firstRetry.message.model, { providerID: "litellm", modelID: "first-secondary" })
+
+  await hooks.event({
+    event: {
+      type: "session.error",
+      properties: { sessionID: "s-overlap", error: { name: "UnknownError", message: "second unavailable" } },
+    },
+  })
+
+  const secondRetry = { message: { model: { ...secondInput.model } }, parts: [{ type: "text", text: "retry" }] }
+  await hooks["chat.message"](secondInput, secondRetry)
+  assert.deepEqual(secondRetry.message.model, { providerID: "litellm", modelID: "second-secondary" })
+})
+
+test("chat.message: non-model session errors keep the primary target", async () => {
+  const errorNames = [
+    "MessageAbortedError",
+    "MessageOutputLengthError",
+    "ContextOverflowError",
+    "ProviderAuthError",
+  ]
+
+  for (const [index, errorName] of errorNames.entries()) {
+    const hooks = createAutoRouterWithConfig(
+      normalizeConfig({
+        enabled: true,
+        notify: false,
+        routers: [
+          {
+            name: `non-model-error-${index}`,
+            pinSession: true,
+            tierModels: {
+              SIMPLE: {
+                model: "litellm/error-primary",
+                fallbacks: ["litellm/error-secondary"],
+              },
+            },
+          },
+        ],
+      }),
+    )
+    const input = {
+      sessionID: `s-error-${index}`,
+      agent: "build",
+      model: { providerID: "auto-router", modelID: `non-model-error-${index}` },
+    }
+    const first = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "hello" }] }
+    await hooks["chat.message"](input, first)
+    assert.deepEqual(first.message.model, { providerID: "litellm", modelID: "error-primary" })
+
+    await hooks.event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: input.sessionID, error: { name: errorName } },
+      },
+    })
+
+    const retry = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "retry" }] }
+    await hooks["chat.message"](input, retry)
+    assert.deepEqual(retry.message.model, { providerID: "litellm", modelID: "error-primary" })
+  }
+})

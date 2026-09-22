@@ -90,6 +90,13 @@ type ActiveAttempt = {
   targetKey: string
 }
 
+const NON_MODEL_ERROR_NAMES = new Set([
+  "MessageAbortedError",
+  "MessageOutputLengthError",
+  "ContextOverflowError",
+  "ProviderAuthError",
+])
+
 function agentMatches(router: ReturnType<typeof normalizeConfig>["routers"][number], agent?: string): boolean {
   if (!agent) return true
   if (router.excludeAgents?.some((name) => name.toLowerCase() === agent.toLowerCase())) return false
@@ -158,7 +165,7 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
   const sessionTiers = new Map<string, Tier>()
   const sessionFirstMessage = new Map<string, boolean>()
   const failedTargets = new Map<string, Set<string>>()
-  const activeAttempts = new Map<string, ActiveAttempt>()
+  const activeAttempts = new Map<string, ActiveAttempt[]>()
   const orchestrators = new Map<string, OrchestratorOptions>(
     config.routers.map((router) => [router.name, buildOrchestratorOptions(router)] as const),
   )
@@ -173,7 +180,28 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
 
   const rememberAttempt = (sessionID: string | undefined, stateKey: string, target: ModelTarget): void => {
     if (!sessionID) return
-    activeAttempts.set(sessionID, { stateKey, targetKey: targetKey(target) })
+    const attempts = activeAttempts.get(sessionID) ?? []
+    attempts.push({ stateKey, targetKey: targetKey(target) })
+    activeAttempts.set(sessionID, attempts)
+  }
+
+  const removeAttempt = (sessionID: string, index: number): ActiveAttempt | undefined => {
+    const attempts = activeAttempts.get(sessionID)
+    if (!attempts) return
+    const [attempt] = attempts.splice(index, 1)
+    if (attempts.length === 0) activeAttempts.delete(sessionID)
+    return attempt
+  }
+
+  const takeNextAttempt = (sessionID: string): ActiveAttempt | undefined => removeAttempt(sessionID, 0)
+
+  const takeCompletedAttempt = (sessionID: string, completedModelKey: string): ActiveAttempt | undefined => {
+    const attempts = activeAttempts.get(sessionID)
+    const index = attempts?.findIndex((attempt) =>
+      attempt.targetKey.startsWith(`${completedModelKey}#`),
+    )
+    if (index === undefined || index < 0) return
+    return removeAttempt(sessionID, index)
   }
 
   const route = async (input: ChatMessageInput, output: ChatMessageOutput): Promise<void> => {
@@ -258,24 +286,24 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
       if (event.type === "session.error") {
         const sessionID = event.properties.sessionID
         if (!sessionID) return
-        const attempt = activeAttempts.get(sessionID)
+        // session.error carries no request ID, so consume attempts in terminal-event order.
+        const attempt = takeNextAttempt(sessionID)
         if (!attempt) return
+        if (NON_MODEL_ERROR_NAMES.has(event.properties.error?.name ?? "")) return
         const failed = failedTargets.get(attempt.stateKey) ?? new Set<string>()
         failed.add(attempt.targetKey)
         failedTargets.set(attempt.stateKey, failed)
-        activeAttempts.delete(sessionID)
         return
       }
 
       if (event.type !== "message.updated") return
       const info = event.properties.info
       if (info.role !== "assistant" || !info.time.completed || info.error) return
-      const attempt = activeAttempts.get(info.sessionID)
-      if (!attempt) return
       const completedModelKey = modelKey(info.providerID, info.modelID)
-      if (!completedModelKey || !attempt.targetKey.startsWith(`${completedModelKey}#`)) return
+      if (!completedModelKey) return
+      const attempt = takeCompletedAttempt(info.sessionID, completedModelKey)
+      if (!attempt) return
       failedTargets.delete(attempt.stateKey)
-      activeAttempts.delete(info.sessionID)
     },
     "chat.message": async (input: unknown, output: unknown) => {
       await route(input as ChatMessageInput, output as ChatMessageOutput)

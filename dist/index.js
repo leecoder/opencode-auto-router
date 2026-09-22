@@ -309,6 +309,12 @@ function targetsFor(router, tier) {
   }
   return targets;
 }
+var NON_MODEL_ERROR_NAMES = /* @__PURE__ */ new Set([
+  "MessageAbortedError",
+  "MessageOutputLengthError",
+  "ContextOverflowError",
+  "ProviderAuthError"
+]);
 function agentMatches(router, agent) {
   if (!agent) return true;
   if (router.excludeAgents?.some((name) => name.toLowerCase() === agent.toLowerCase())) return false;
@@ -378,7 +384,25 @@ function createAutoRouterWithConfig(config) {
   };
   const rememberAttempt = (sessionID, stateKey, target) => {
     if (!sessionID) return;
-    activeAttempts.set(sessionID, { stateKey, targetKey: targetKey(target) });
+    const attempts = activeAttempts.get(sessionID) ?? [];
+    attempts.push({ stateKey, targetKey: targetKey(target) });
+    activeAttempts.set(sessionID, attempts);
+  };
+  const removeAttempt = (sessionID, index) => {
+    const attempts = activeAttempts.get(sessionID);
+    if (!attempts) return;
+    const [attempt] = attempts.splice(index, 1);
+    if (attempts.length === 0) activeAttempts.delete(sessionID);
+    return attempt;
+  };
+  const takeNextAttempt = (sessionID) => removeAttempt(sessionID, 0);
+  const takeCompletedAttempt = (sessionID, completedModelKey) => {
+    const attempts = activeAttempts.get(sessionID);
+    const index = attempts?.findIndex(
+      (attempt) => attempt.targetKey.startsWith(`${completedModelKey}#`)
+    );
+    if (index === void 0 || index < 0) return;
+    return removeAttempt(sessionID, index);
   };
   const route = async (input, output) => {
     if (!config.enabled) return;
@@ -448,23 +472,22 @@ function createAutoRouterWithConfig(config) {
       if (event.type === "session.error") {
         const sessionID = event.properties.sessionID;
         if (!sessionID) return;
-        const attempt2 = activeAttempts.get(sessionID);
+        const attempt2 = takeNextAttempt(sessionID);
         if (!attempt2) return;
+        if (NON_MODEL_ERROR_NAMES.has(event.properties.error?.name ?? "")) return;
         const failed = failedTargets.get(attempt2.stateKey) ?? /* @__PURE__ */ new Set();
         failed.add(attempt2.targetKey);
         failedTargets.set(attempt2.stateKey, failed);
-        activeAttempts.delete(sessionID);
         return;
       }
       if (event.type !== "message.updated") return;
       const info = event.properties.info;
       if (info.role !== "assistant" || !info.time.completed || info.error) return;
-      const attempt = activeAttempts.get(info.sessionID);
-      if (!attempt) return;
       const completedModelKey = modelKey(info.providerID, info.modelID);
-      if (!completedModelKey || !attempt.targetKey.startsWith(`${completedModelKey}#`)) return;
+      if (!completedModelKey) return;
+      const attempt = takeCompletedAttempt(info.sessionID, completedModelKey);
+      if (!attempt) return;
       failedTargets.delete(attempt.stateKey);
-      activeAttempts.delete(info.sessionID);
     },
     "chat.message": async (input, output) => {
       await route(input, output);
