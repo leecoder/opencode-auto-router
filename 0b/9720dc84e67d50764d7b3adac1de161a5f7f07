@@ -1,0 +1,56 @@
+src/index.ts
+  s_e50177ff2fa113::t_31c961ef0f6b65 192,205,207-208,215,221-222,231-232,236,238,243
+  s_e50177ff2fa113::t_0e9269c70262be 2-8,64-92,160-161,257-274,277-279
+  s_e50177ff2fa113::t_6f6762495f8f0b 166-178
+  s_e50177ff2fa113::t_ea4dc63d14c306 275-276
+dist/index.js
+  s_634461124180ed::t_d9a6b7a42f1e3b 8,12
+  s_634461124180ed::t_4da04d583a449c 393,402,404-405,412,417-418,424-425,429,431,435
+  s_634461124180ed::t_8ab2abcf288740 291-311,367-368,372-382,447-463,466-468
+  s_634461124180ed::t_173ded07f10a23 464-465
+dist/chunk-MP6HYRM3.js
+  s_634461124180ed::t_d9a6b7a42f1e3b 1-56
+dist/config-loader.js
+  s_634461124180ed::t_d9a6b7a42f1e3b 6,12
+dist/config.js
+  s_634461124180ed::t_d9a6b7a42f1e3b 13
+test/router.test.mjs
+  s_e50177ff2fa113::t_d7d1fc36a00819 210-212,221-230,352-362,370-393,405-410,412-417
+  s_e50177ff2fa113::t_057156d44e784c 213-216,219-220,363-369
+  s_e50177ff2fa113::t_df03aa407a3580 394-404,411,418-420
+  s_e50177ff2fa113::t_edff00974f9f17 217-218
+  s_e50177ff2fa113::t_26954a7657a085 421-468
+  s_e50177ff2fa113::t_c56e974576982e 6
+src/config.ts
+  s_e50177ff2fa113::t_54af4e0b964ac7 42,46-49,51,246,256
+  s_e50177ff2fa113::t_f61e3987e38812 204,262
+dist/config.d.ts
+  s_634461124180ed::t_173ded07f10a23 138
+  s_634461124180ed::t_d9a6b7a42f1e3b 38,42-45,47,168
+dist/chunk-XVEMK6MM.js
+  s_634461124180ed::t_d9a6b7a42f1e3b 1-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0b9720dc84e67d50764d7b3adac1de161a5f7f07",
+  "prompts": {},
+  "sessions": {
+    "s_634461124180ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f4ca33bb4ffegW3qHYchyvUC6i",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_e50177ff2fa113": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4ca33bb4ffegW3qHYchyvUC6i",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
