@@ -35,11 +35,16 @@ interface ClassifierConfig {
 /** Optional per-tier variant (e.g. reasoningEffort) applied when routing to a
  *  tier model. Keyed by tier; models without variants omit the entry. */
 type TierVariants = Partial<Record<Tier, string>>;
-interface TierModelSetting {
+interface TierModelReference {
     model: string;
     variant?: string;
 }
+type TierModelFallbackValue = string | TierModelReference;
+interface TierModelSetting extends TierModelReference {
+    fallbacks?: readonly TierModelFallbackValue[];
+}
 type TierModelValue = string | TierModelSetting;
+type TierModelFallbacks = Partial<Record<Tier, readonly TierModelFallbackValue[]>>;
 type DimensionName = "tokenCount" | "codePresence" | "reasoningMarkers" | "technicalTerms" | "simpleIndicators" | "multiStepPatterns" | "questionComplexity";
 type BoundaryName = "simple_medium" | "medium_complex" | "complex_reasoning";
 declare const DEFAULT_TIER_MODELS: TierModels;
@@ -130,6 +135,7 @@ declare const DEFAULT_TOKEN_THRESHOLDS: Record<"simple" | "complex", number>;
 interface NormalizedRouter {
     name: string;
     tierModels: TierModels;
+    tierFallbacks: TierModelFallbacks;
     tierVariants: TierVariants;
     defaultModel: string;
     tierLabels: Partial<Record<Tier, string>>;
@@ -159,4 +165,4 @@ declare function normalizeConfig(raw: PluginConfig | undefined): NormalizedPlugi
  *  canonical lowercase form used for trigger matching. */
 declare function modelKey(providerID?: string, modelID?: string): string | null;
 
-export { type BoundaryName, type ClassifierCombination, type ClassifierConfig, type ClassifierKind, DEFAULT_CODE_KEYWORDS, DEFAULT_DIMENSION_WEIGHTS, DEFAULT_REASONING_KEYWORDS, DEFAULT_SIMPLE_KEYWORDS, DEFAULT_TECHNICAL_KEYWORDS, DEFAULT_TIER_BOUNDARIES, DEFAULT_TIER_MODELS, DEFAULT_TOKEN_THRESHOLDS, type DimensionName, type NormalizedPluginConfig, type NormalizedRouter, type PluginConfig, type RouterConfig, type Tier, type TierModelSetting, type TierModelValue, type TierModels, type TierVariants, modelKey, normalizeConfig, normalizeRouter };
+export { type BoundaryName, type ClassifierCombination, type ClassifierConfig, type ClassifierKind, DEFAULT_CODE_KEYWORDS, DEFAULT_DIMENSION_WEIGHTS, DEFAULT_REASONING_KEYWORDS, DEFAULT_SIMPLE_KEYWORDS, DEFAULT_TECHNICAL_KEYWORDS, DEFAULT_TIER_BOUNDARIES, DEFAULT_TIER_MODELS, DEFAULT_TOKEN_THRESHOLDS, type DimensionName, type NormalizedPluginConfig, type NormalizedRouter, type PluginConfig, type RouterConfig, type Tier, type TierModelFallbackValue, type TierModelFallbacks, type TierModelReference, type TierModelSetting, type TierModelValue, type TierModels, type TierVariants, modelKey, normalizeConfig, normalizeRouter };

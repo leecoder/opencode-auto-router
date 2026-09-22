@@ -39,11 +39,16 @@ export interface ClassifierConfig {
 /** Optional per-tier variant (e.g. reasoningEffort) applied when routing to a
  *  tier model. Keyed by tier; models without variants omit the entry. */
 export type TierVariants = Partial<Record<Tier, string>>
-export interface TierModelSetting {
+export interface TierModelReference {
   model: string
   variant?: string
 }
+export type TierModelFallbackValue = string | TierModelReference
+export interface TierModelSetting extends TierModelReference {
+  fallbacks?: readonly TierModelFallbackValue[]
+}
 export type TierModelValue = string | TierModelSetting
+export type TierModelFallbacks = Partial<Record<Tier, readonly TierModelFallbackValue[]>>
 export type DimensionName =
   | "tokenCount"
   | "codePresence"
@@ -196,6 +201,7 @@ export const DEFAULT_TOKEN_THRESHOLDS: Record<"simple" | "complex", number> = {
 export interface NormalizedRouter {
   name: string
   tierModels: TierModels
+  tierFallbacks: TierModelFallbacks
   tierVariants: TierVariants
   defaultModel: string
   tierLabels: Partial<Record<Tier, string>>
@@ -237,6 +243,7 @@ function normalizeClassifierKinds(
 
 export function normalizeRouter(raw: RouterConfig | undefined, index: number): NormalizedRouter {
   const tierModels = { ...FULL_TIER_DEFAULTS }
+  const tierFallbacks: TierModelFallbacks = {}
   const tierVariants = { ...(raw?.tierVariants ?? {}) }
   for (const tier of Object.keys(tierModels) as Tier[]) {
     const setting = raw?.tierModels?.[tier]
@@ -246,11 +253,13 @@ export function normalizeRouter(raw: RouterConfig | undefined, index: number): N
       continue
     }
     tierModels[tier] = setting.model
+    if (setting.fallbacks !== undefined) tierFallbacks[tier] = setting.fallbacks
     if (setting.variant !== undefined) tierVariants[tier] = setting.variant
   }
   return {
     name: raw?.name ?? `router-${index}`,
     tierModels,
+    tierFallbacks,
     tierVariants,
     defaultModel: raw?.defaultModel ?? tierModels.MEDIUM,
     tierLabels: raw?.tierLabels ?? {},

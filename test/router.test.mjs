@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { classifyRequest, stripReminderBlocks } from "../dist/classifier.js"
 import { normalizeConfig, modelKey, normalizeRouter, DEFAULT_TIER_MODELS } from "../dist/config.js"
 import { findRouterForModel } from "../dist/config-loader.js"
-import { createAutoRouter } from "../dist/index.js"
+import { createAutoRouter, createAutoRouterWithConfig } from "../dist/index.js"
 
 const cfg = normalizeConfig(undefined)
 
@@ -207,6 +207,27 @@ test("normalizeRouter: tier model object carries its variant", () => {
   assert.equal(router.tierModels.REASONING, "litellm/opus-5")
 })
 
+test("normalizeRouter: tier fallbacks preserve model order and variants", () => {
+  const router = normalizeRouter(
+    {
+      tierModels: {
+        SIMPLE: {
+          model: "openai/gpt-5.6-luna",
+          fallbacks: [
+            "litellm/glm-4.7-flash",
+            { model: "litellm/glm-5", variant: "low" },
+          ],
+        },
+      },
+    },
+    0,
+  )
+  assert.deepEqual(router.tierFallbacks.SIMPLE, [
+    "litellm/glm-4.7-flash",
+    { model: "litellm/glm-5", variant: "low" },
+  ])
+})
+
 test("normalizeRouter: explicit tierVariants overrides only string shorthand", () => {
   const router = normalizeRouter(
     {
@@ -327,4 +348,121 @@ test("chat.message routes using an inline tier model variant", async () => {
     output,
   )
   assert.deepEqual(output.message.model, { providerID: "litellm", modelID: "gpt-5.6-luna", variant: "low" })
+})
+
+test("chat.message: failed tier model advances to fallback on the next retry", async () => {
+  const hooks = createAutoRouterWithConfig(
+    normalizeConfig({
+      enabled: true,
+      notify: false,
+      routers: [
+        {
+          name: "fallback",
+          pinSession: true,
+          tierModels: {
+            SIMPLE: {
+              model: "litellm/primary",
+              fallbacks: [
+                "litellm/secondary",
+                { model: "litellm/tertiary", variant: "low" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+  )
+
+  const input = { sessionID: "s-fallback", agent: "build", model: { providerID: "auto-router", modelID: "fallback" } }
+  const first = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "hello" }] }
+  await hooks["chat.message"](input, first)
+  assert.deepEqual(first.message.model, { providerID: "litellm", modelID: "primary" })
+
+  await hooks.event({
+    event: {
+      type: "session.error",
+      properties: { sessionID: "s-fallback", error: { name: "UnknownError", message: "primary unavailable" } },
+    },
+  })
+
+  const second = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "try again" }] }
+  await hooks["chat.message"](input, second)
+  assert.deepEqual(second.message.model, { providerID: "litellm", modelID: "secondary" })
+
+  await hooks.event({
+    event: {
+      type: "session.error",
+      properties: { sessionID: "s-fallback", error: { name: "UnknownError", message: "secondary unavailable" } },
+    },
+  })
+
+  const third = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "try once more" }] }
+  await hooks["chat.message"](input, third)
+  assert.deepEqual(third.message.model, { providerID: "litellm", modelID: "tertiary", variant: "low" })
+
+  await hooks.event({
+    event: {
+      type: "message.updated",
+      properties: {
+        info: {
+          role: "assistant",
+          sessionID: "s-fallback",
+          providerID: "litellm",
+          modelID: "tertiary",
+          time: { created: 1, completed: 2 },
+        },
+      },
+    },
+  })
+
+  const fourth = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "one more" }] }
+  await hooks["chat.message"](input, fourth)
+  assert.deepEqual(fourth.message.model, { providerID: "litellm", modelID: "primary" })
+})
+
+test("chat.message: failed target state is isolated by tier", async () => {
+  const hooks = createAutoRouterWithConfig(
+    normalizeConfig({
+      enabled: true,
+      notify: false,
+      routers: [
+        {
+          name: "tier-isolated-fallback",
+          tierModels: {
+            SIMPLE: {
+              model: "litellm/shared-primary",
+              fallbacks: ["litellm/simple-secondary"],
+            },
+            MEDIUM: {
+              model: "litellm/shared-primary",
+              fallbacks: ["litellm/medium-secondary"],
+            },
+          },
+        },
+      ],
+    }),
+  )
+
+  const input = {
+    sessionID: "s-tier-isolation",
+    agent: "build",
+    model: { providerID: "auto-router", modelID: "tier-isolated-fallback" },
+  }
+  const simple = { message: { model: { ...input.model } }, parts: [{ type: "text", text: "hello" }] }
+  await hooks["chat.message"](input, simple)
+  assert.deepEqual(simple.message.model, { providerID: "litellm", modelID: "shared-primary" })
+
+  await hooks.event({
+    event: {
+      type: "session.error",
+      properties: { sessionID: "s-tier-isolation", error: { name: "UnknownError", message: "simple unavailable" } },
+    },
+  })
+
+  const medium = {
+    message: { model: { ...input.model } },
+    parts: [{ type: "text", text: "implement an API endpoint" }],
+  }
+  await hooks["chat.message"](input, medium)
+  assert.deepEqual(medium.message.model, { providerID: "litellm", modelID: "shared-primary" })
 })

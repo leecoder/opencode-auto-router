@@ -159,6 +159,7 @@ function normalizeClassifierKinds(shorthand, full) {
 }
 function normalizeRouter(raw, index) {
   const tierModels = { ...FULL_TIER_DEFAULTS };
+  const tierFallbacks = {};
   const tierVariants = { ...raw?.tierVariants ?? {} };
   for (const tier of Object.keys(tierModels)) {
     const setting = raw?.tierModels?.[tier];
@@ -168,11 +169,13 @@ function normalizeRouter(raw, index) {
       continue;
     }
     tierModels[tier] = setting.model;
+    if (setting.fallbacks !== void 0) tierFallbacks[tier] = setting.fallbacks;
     if (setting.variant !== void 0) tierVariants[tier] = setting.variant;
   }
   return {
     name: raw?.name ?? `router-${index}`,
     tierModels,
+    tierFallbacks,
     tierVariants,
     defaultModel: raw?.defaultModel ?? tierModels.MEDIUM,
     tierLabels: raw?.tierLabels ?? {},

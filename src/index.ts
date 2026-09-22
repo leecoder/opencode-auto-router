@@ -1,5 +1,11 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import { normalizeConfig, type NormalizedPluginConfig, type NormalizedRouter, type Tier } from "./config"
+import {
+  normalizeConfig,
+  type NormalizedPluginConfig,
+  type NormalizedRouter,
+  type Tier,
+  type TierModelValue,
+} from "./config"
 import { findRouterForModel, loadConfig, modelKey } from "./config-loader"
 import { stripReminderBlocks } from "./classifier"
 import { createHeuristicClassifier } from "./classifiers/heuristic"
@@ -53,6 +59,35 @@ function targetFor(router: NormalizedRouter, tier: Tier): ModelTarget {
   const base = splitModel(router.tierModels[tier])
   const variant = router.tierVariants?.[tier]
   return variant ? { ...base, variant } : base
+}
+
+function targetForValue(value: TierModelValue): ModelTarget {
+  if (typeof value === "string") return splitModel(value)
+  const base = splitModel(value.model)
+  return value.variant ? { ...base, variant: value.variant } : base
+}
+
+function targetKey(target: ModelTarget): string {
+  return `${modelKey(target.providerID, target.modelID) ?? ""}#${target.variant ?? ""}`
+}
+
+function targetsFor(router: NormalizedRouter, tier: Tier): readonly ModelTarget[] {
+  const primary = targetFor(router, tier)
+  const fallbacks = (router.tierFallbacks[tier] ?? []).map(targetForValue)
+  const targets: ModelTarget[] = []
+  const seen = new Set<string>()
+  for (const target of [primary, ...fallbacks]) {
+    const key = targetKey(target)
+    if (seen.has(key)) continue
+    seen.add(key)
+    targets.push(target)
+  }
+  return targets
+}
+
+type ActiveAttempt = {
+  stateKey: string
+  targetKey: string
 }
 
 function agentMatches(router: ReturnType<typeof normalizeConfig>["routers"][number], agent?: string): boolean {
@@ -122,9 +157,24 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
   // routers can coexist without one pin bleeding into another.
   const sessionTiers = new Map<string, Tier>()
   const sessionFirstMessage = new Map<string, boolean>()
+  const failedTargets = new Map<string, Set<string>>()
+  const activeAttempts = new Map<string, ActiveAttempt>()
   const orchestrators = new Map<string, OrchestratorOptions>(
     config.routers.map((router) => [router.name, buildOrchestratorOptions(router)] as const),
   )
+
+  const selectTarget = (router: NormalizedRouter, tier: Tier, stateKey: string): ModelTarget => {
+    const failed = failedTargets.get(stateKey)
+    const target = targetsFor(router, tier).find((candidate) => !failed?.has(targetKey(candidate)))
+    if (target) return target
+    failed?.clear()
+    return targetFor(router, tier)
+  }
+
+  const rememberAttempt = (sessionID: string | undefined, stateKey: string, target: ModelTarget): void => {
+    if (!sessionID) return
+    activeAttempts.set(sessionID, { stateKey, targetKey: targetKey(target) })
+  }
 
   const route = async (input: ChatMessageInput, output: ChatMessageOutput): Promise<void> => {
     if (!config.enabled) return
@@ -139,7 +189,7 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
     if (!agentMatches(router, input.agent)) return
 
     const sessionID = input.sessionID ?? ""
-    const stateKey = `${router.name}:${sessionID}`
+    const sessionKey = `${router.name}:${sessionID}`
 
     const promptText = extractText(output.parts)
     const humanText = stripReminderBlocks(promptText)
@@ -152,22 +202,24 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
       ) ?? ""
 
     if (router.pinSession) {
-      const pinned = sessionTiers.get(stateKey)
+      const pinned = sessionTiers.get(sessionKey)
       if (pinned) {
-        const pinnedTarget = targetFor(router, pinned)
+        const fallbackStateKey = `${sessionKey}:${pinned}`
+        const pinnedTarget = selectTarget(router, pinned, fallbackStateKey)
         const pinnedRef = modelKey(pinnedTarget.providerID, pinnedTarget.modelID)
         if (selectedRef !== pinnedRef) {
           output.message.model = { ...pinnedTarget }
         } else if (pinnedTarget.variant && input.variant !== pinnedTarget.variant) {
           output.message.model = { ...pinnedTarget }
         }
+        rememberAttempt(input.sessionID, fallbackStateKey, pinnedTarget)
         return
       }
     }
 
     if (router.firstMessageOnly) {
-      const isFirst = sessionFirstMessage.get(stateKey) !== true
-      sessionFirstMessage.set(stateKey, true)
+      const isFirst = sessionFirstMessage.get(sessionKey) !== true
+      sessionFirstMessage.set(sessionKey, true)
       if (!isFirst && !router.pinSession) return
     }
 
@@ -176,17 +228,19 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
 
     const result: OrchestratedResult = await orchestrate(orchestratorOptions, { prompt: humanText })
 
-    const target = targetFor(router, result.tier)
+    const fallbackStateKey = `${sessionKey}:${result.tier}`
+    const target = selectTarget(router, result.tier, fallbackStateKey)
     const targetRef = modelKey(target.providerID, target.modelID)
     const sameModel = selectedRef === targetRef
     const sameVariant = !target.variant || input.variant === target.variant
+    rememberAttempt(input.sessionID, fallbackStateKey, target)
     if (sameModel && sameVariant) {
-      sessionTiers.set(stateKey, result.tier)
+      sessionTiers.set(sessionKey, result.tier)
       return
     }
 
     output.message.model = { ...target }
-    sessionTiers.set(stateKey, result.tier)
+    sessionTiers.set(sessionKey, result.tier)
 
     if (config.notify) {
       const label = router.tierLabels[result.tier] ?? result.tier
@@ -200,6 +254,29 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
   }
 
   return {
+    event: async ({ event }) => {
+      if (event.type === "session.error") {
+        const sessionID = event.properties.sessionID
+        if (!sessionID) return
+        const attempt = activeAttempts.get(sessionID)
+        if (!attempt) return
+        const failed = failedTargets.get(attempt.stateKey) ?? new Set<string>()
+        failed.add(attempt.targetKey)
+        failedTargets.set(attempt.stateKey, failed)
+        activeAttempts.delete(sessionID)
+        return
+      }
+
+      if (event.type !== "message.updated") return
+      const info = event.properties.info
+      if (info.role !== "assistant" || !info.time.completed || info.error) return
+      const attempt = activeAttempts.get(info.sessionID)
+      if (!attempt) return
+      const completedModelKey = modelKey(info.providerID, info.modelID)
+      if (!completedModelKey || !attempt.targetKey.startsWith(`${completedModelKey}#`)) return
+      failedTargets.delete(attempt.stateKey)
+      activeAttempts.delete(info.sessionID)
+    },
     "chat.message": async (input: unknown, output: unknown) => {
       await route(input as ChatMessageInput, output as ChatMessageOutput)
     },
