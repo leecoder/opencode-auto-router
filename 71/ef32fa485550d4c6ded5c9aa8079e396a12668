@@ -1,0 +1,31 @@
+dist/index.js
+  s_634461124180ed::t_4e31b1326968ee 312-317,387-405,475,477,487-489
+src/index.ts
+  s_e50177ff2fa113::t_cc40da1fed6c39 93-99,168,183-204,289-290,292,303-305
+test/router.test.mjs
+  s_e50177ff2fa113::t_a68e56bd6a2cda 469-629
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "71ef32fa485550d4c6ded5c9aa8079e396a12668",
+  "prompts": {},
+  "sessions": {
+    "s_634461124180ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ses_f4ca33bb4ffegW3qHYchyvUC6i",
+        "model": "unknown"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    },
+    "s_e50177ff2fa113": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f4ca33bb4ffegW3qHYchyvUC6i",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "leecoder <leecoder@aol.com>"
+    }
+  }
+}
