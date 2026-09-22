@@ -5,11 +5,11 @@ import {
 import {
   findRouterForModel,
   loadConfig
-} from "./chunk-KN2NSH7R.js";
+} from "./chunk-MP6HYRM3.js";
 import {
   modelKey,
   normalizeConfig
-} from "./chunk-3H3TGZND.js";
+} from "./chunk-XVEMK6MM.js";
 
 // src/classifiers/heuristic.ts
 var TIER_BELOW = {
@@ -288,6 +288,33 @@ function targetFor(router, tier) {
   const variant = router.tierVariants?.[tier];
   return variant ? { ...base, variant } : base;
 }
+function targetForValue(value) {
+  if (typeof value === "string") return splitModel(value);
+  const base = splitModel(value.model);
+  return value.variant ? { ...base, variant: value.variant } : base;
+}
+function targetKey(target) {
+  return `${modelKey(target.providerID, target.modelID) ?? ""}#${target.variant ?? ""}`;
+}
+function targetsFor(router, tier) {
+  const primary = targetFor(router, tier);
+  const fallbacks = (router.tierFallbacks[tier] ?? []).map(targetForValue);
+  const targets = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const target of [primary, ...fallbacks]) {
+    const key = targetKey(target);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    targets.push(target);
+  }
+  return targets;
+}
+var NON_MODEL_ERROR_NAMES = /* @__PURE__ */ new Set([
+  "MessageAbortedError",
+  "MessageOutputLengthError",
+  "ContextOverflowError",
+  "ProviderAuthError"
+]);
 function agentMatches(router, agent) {
   if (!agent) return true;
   if (router.excludeAgents?.some((name) => name.toLowerCase() === agent.toLowerCase())) return false;
@@ -343,9 +370,40 @@ function createAutoRouter() {
 function createAutoRouterWithConfig(config) {
   const sessionTiers = /* @__PURE__ */ new Map();
   const sessionFirstMessage = /* @__PURE__ */ new Map();
+  const failedTargets = /* @__PURE__ */ new Map();
+  const activeAttempts = /* @__PURE__ */ new Map();
   const orchestrators = new Map(
     config.routers.map((router) => [router.name, buildOrchestratorOptions(router)])
   );
+  const selectTarget = (router, tier, stateKey) => {
+    const failed = failedTargets.get(stateKey);
+    const target = targetsFor(router, tier).find((candidate) => !failed?.has(targetKey(candidate)));
+    if (target) return target;
+    failed?.clear();
+    return targetFor(router, tier);
+  };
+  const rememberAttempt = (sessionID, stateKey, target) => {
+    if (!sessionID) return;
+    const attempts = activeAttempts.get(sessionID) ?? [];
+    attempts.push({ stateKey, targetKey: targetKey(target) });
+    activeAttempts.set(sessionID, attempts);
+  };
+  const removeAttempt = (sessionID, index) => {
+    const attempts = activeAttempts.get(sessionID);
+    if (!attempts) return;
+    const [attempt] = attempts.splice(index, 1);
+    if (attempts.length === 0) activeAttempts.delete(sessionID);
+    return attempt;
+  };
+  const takeNextAttempt = (sessionID) => removeAttempt(sessionID, 0);
+  const takeCompletedAttempt = (sessionID, completedModelKey) => {
+    const attempts = activeAttempts.get(sessionID);
+    const index = attempts?.findIndex(
+      (attempt) => attempt.targetKey.startsWith(`${completedModelKey}#`)
+    );
+    if (index === void 0 || index < 0) return;
+    return removeAttempt(sessionID, index);
+  };
   const route = async (input, output) => {
     if (!config.enabled) return;
     const router = findRouterForModel({
@@ -356,7 +414,7 @@ function createAutoRouterWithConfig(config) {
     if (!router) return;
     if (!agentMatches(router, input.agent)) return;
     const sessionID = input.sessionID ?? "";
-    const stateKey = `${router.name}:${sessionID}`;
+    const sessionKey = `${router.name}:${sessionID}`;
     const promptText = extractText(output.parts);
     const humanText = stripReminderBlocks(promptText);
     if (!humanText.trim()) return;
@@ -365,36 +423,40 @@ function createAutoRouterWithConfig(config) {
       input.model?.modelID ?? output.message.model?.modelID
     ) ?? "";
     if (router.pinSession) {
-      const pinned = sessionTiers.get(stateKey);
+      const pinned = sessionTiers.get(sessionKey);
       if (pinned) {
-        const pinnedTarget = targetFor(router, pinned);
+        const fallbackStateKey2 = `${sessionKey}:${pinned}`;
+        const pinnedTarget = selectTarget(router, pinned, fallbackStateKey2);
         const pinnedRef = modelKey(pinnedTarget.providerID, pinnedTarget.modelID);
         if (selectedRef !== pinnedRef) {
           output.message.model = { ...pinnedTarget };
         } else if (pinnedTarget.variant && input.variant !== pinnedTarget.variant) {
           output.message.model = { ...pinnedTarget };
         }
+        rememberAttempt(input.sessionID, fallbackStateKey2, pinnedTarget);
         return;
       }
     }
     if (router.firstMessageOnly) {
-      const isFirst = sessionFirstMessage.get(stateKey) !== true;
-      sessionFirstMessage.set(stateKey, true);
+      const isFirst = sessionFirstMessage.get(sessionKey) !== true;
+      sessionFirstMessage.set(sessionKey, true);
       if (!isFirst && !router.pinSession) return;
     }
     const orchestratorOptions = orchestrators.get(router.name);
     if (!orchestratorOptions) return;
     const result = await orchestrate(orchestratorOptions, { prompt: humanText });
-    const target = targetFor(router, result.tier);
+    const fallbackStateKey = `${sessionKey}:${result.tier}`;
+    const target = selectTarget(router, result.tier, fallbackStateKey);
     const targetRef = modelKey(target.providerID, target.modelID);
     const sameModel = selectedRef === targetRef;
     const sameVariant = !target.variant || input.variant === target.variant;
+    rememberAttempt(input.sessionID, fallbackStateKey, target);
     if (sameModel && sameVariant) {
-      sessionTiers.set(stateKey, result.tier);
+      sessionTiers.set(sessionKey, result.tier);
       return;
     }
     output.message.model = { ...target };
-    sessionTiers.set(stateKey, result.tier);
+    sessionTiers.set(sessionKey, result.tier);
     if (config.notify) {
       const label = router.tierLabels[result.tier] ?? result.tier;
       const conf = result.confidence.toFixed(2);
@@ -406,6 +468,27 @@ function createAutoRouterWithConfig(config) {
     }
   };
   return {
+    event: async ({ event }) => {
+      if (event.type === "session.error") {
+        const sessionID = event.properties.sessionID;
+        if (!sessionID) return;
+        const attempt2 = takeNextAttempt(sessionID);
+        if (!attempt2) return;
+        if (NON_MODEL_ERROR_NAMES.has(event.properties.error?.name ?? "")) return;
+        const failed = failedTargets.get(attempt2.stateKey) ?? /* @__PURE__ */ new Set();
+        failed.add(attempt2.targetKey);
+        failedTargets.set(attempt2.stateKey, failed);
+        return;
+      }
+      if (event.type !== "message.updated") return;
+      const info = event.properties.info;
+      if (info.role !== "assistant" || !info.time.completed || info.error) return;
+      const completedModelKey = modelKey(info.providerID, info.modelID);
+      if (!completedModelKey) return;
+      const attempt = takeCompletedAttempt(info.sessionID, completedModelKey);
+      if (!attempt) return;
+      failedTargets.delete(attempt.stateKey);
+    },
     "chat.message": async (input, output) => {
       await route(input, output);
     }
