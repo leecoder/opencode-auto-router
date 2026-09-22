@@ -191,7 +191,7 @@ Add an ordered fallback chain inside the tier's model object:
 }
 ```
 
-When OpenCode publishes `session.error` for the selected tier model, the router remembers that model as failed. On the next user retry in the same session and tier, it selects the next unfailed entry. A successful assistant completion clears the failure state and restores the primary tier model on the following request. Because the current plugin hook runs before the model request, fallback is not a transparent mid-request retry; use a gateway-side fallback when the same request must be retried automatically.
+When OpenCode publishes a model-failure `session.error`, the router remembers that model as failed. On the next user retry in the same session and tier, it selects the next unfailed entry. Abort, output-length, context-overflow, and provider-auth errors do not advance the fallback chain. A successful assistant completion clears the failure state and restores the primary tier model on the following request. Because the current plugin hook runs before the model request, fallback is not a transparent mid-request retry; use a gateway-side fallback when the same request must be retried automatically.
 
 ### Which model should you select in OpenCode?
 
