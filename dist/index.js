@@ -5,11 +5,18 @@ import {
 import {
   findRouterForModel,
   loadConfig
-} from "./chunk-MP6HYRM3.js";
+} from "./chunk-UIBU7BVP.js";
 import {
   modelKey,
   normalizeConfig
-} from "./chunk-XVEMK6MM.js";
+} from "./chunk-GGEPTD5V.js";
+import {
+  createBertClassifier,
+  resolveTierFromLabel
+} from "./chunk-N4XDYKMX.js";
+
+// src/index.ts
+import { Plugin } from "@opencode/plugin";
 
 // src/classifiers/heuristic.ts
 var TIER_BELOW = {
@@ -49,72 +56,6 @@ function createHeuristicClassifier(options) {
         ok: false,
         error: error instanceof Error ? error.message : String(error)
       };
-    }
-  };
-}
-
-// src/classifiers/bert.ts
-var DEFAULT_BERT_MODEL = "mustafacolakoglu94/llm-query-complexity-classifier-onnx";
-var DEFAULT_LABEL_TO_TIER = {
-  LOW: "SIMPLE",
-  MEDIUM: "MEDIUM",
-  HIGH: "COMPLEX"
-};
-var pipelinePromise = null;
-var pipelineKey = "";
-function resolveTierFromLabel(label, resolver) {
-  if (!resolver) return DEFAULT_LABEL_TO_TIER[label.toUpperCase()] ?? null;
-  if (typeof resolver === "function") return resolver(label);
-  const mapped = resolver[label] ?? resolver[label.toUpperCase()];
-  return mapped ?? null;
-}
-async function loadPipeline(options) {
-  const key = `${options.model}:${options.onnxFile ?? ""}:${options.device ?? ""}`;
-  if (pipelinePromise && pipelineKey === key) return pipelinePromise;
-  pipelinePromise = (async () => {
-    const { pipeline } = await import("@huggingface/transformers");
-    return await pipeline("text-classification", options.model, {
-      dtype: "q8",
-      device: options.device ?? "cpu"
-    });
-  })();
-  pipelineKey = key;
-  return pipelinePromise;
-}
-function createBertClassifier(options = {}) {
-  const model = options.model ?? DEFAULT_BERT_MODEL;
-  const timeoutMs = options.timeoutMs ?? 1e4;
-  return async (request) => {
-    const started = performance.now();
-    const fail = (error) => ({
-      kind: "bert",
-      tier: "MEDIUM",
-      confidence: 0,
-      reason: "bert unavailable",
-      latencyMs: performance.now() - started,
-      ok: false,
-      error
-    });
-    try {
-      const pipe = await loadPipeline({ model, onnxFile: options.onnxFile, device: options.device });
-      const infer = pipe(request.prompt);
-      const timeout = new Promise(
-        (_, reject) => setTimeout(() => reject(new Error(`bert timeout after ${timeoutMs}ms`)), timeoutMs)
-      );
-      const outputs = (await Promise.race([infer, timeout]))[0];
-      if (!outputs?.label) return fail("bert returned no label");
-      const tier = resolveTierFromLabel(outputs.label, options.labelToTier);
-      if (!tier) return fail(`unmapped label: ${outputs.label}`);
-      return {
-        kind: "bert",
-        tier,
-        confidence: outputs.score,
-        reason: `label=${outputs.label} p=${outputs.score.toFixed(2)}`,
-        latencyMs: performance.now() - started,
-        ok: true
-      };
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error));
     }
   };
 }
@@ -315,6 +256,14 @@ var NON_MODEL_ERROR_NAMES = /* @__PURE__ */ new Set([
   "ContextOverflowError",
   "ProviderAuthError"
 ]);
+var V2_NON_MODEL_ERROR_TYPES = /* @__PURE__ */ new Set([
+  "permission.rejected",
+  "tool.execution",
+  "provider.auth",
+  "provider.content-filter",
+  "provider.invalid-request",
+  "provider.unsupported-operation"
+]);
 function agentMatches(router, agent) {
   if (!agent) return true;
   if (router.excludeAgents?.some((name) => name.toLowerCase() === agent.toLowerCase())) return false;
@@ -330,6 +279,8 @@ function buildOrchestratorOptions(router) {
       return createBertClassifier({
         model: kindOptions.model,
         onnxFile: kindOptions.onnxFile,
+        maxInputTokens: kindOptions.maxInputTokens,
+        intraOpNumThreads: kindOptions.intraOpNumThreads,
         labelToTier: kindOptions.labelToTier ? kindOptions.labelToTier : void 0,
         timeoutMs: kindOptions.timeoutMs
       });
@@ -482,7 +433,8 @@ function createAutoRouterWithConfig(config) {
       }
       if (event.type !== "message.updated") return;
       const info = event.properties.info;
-      if (info.role !== "assistant" || !info.time.completed || info.error) return;
+      if (!info || info.role !== "assistant" || !info.time?.completed || info.error || !info.sessionID || !info.providerID || !info.modelID)
+        return;
       const completedModelKey = modelKey(info.providerID, info.modelID);
       if (!completedModelKey) return;
       const attempt = takeCompletedAttempt(info.sessionID, completedModelKey);
@@ -494,13 +446,180 @@ function createAutoRouterWithConfig(config) {
     }
   };
 }
-var pluginModule = {
+function v2ModelKey(model) {
+  if (!model?.providerID || !model.id) return null;
+  return modelKey(model.providerID, model.id);
+}
+function v2ModelRef(target) {
+  return target.variant ? { providerID: target.providerID, id: target.modelID, variant: target.variant } : { providerID: target.providerID, id: target.modelID };
+}
+function v2TargetMatchesSelection(target, selection) {
+  return targetKey(target) === `${v2ModelKey(selection) ?? ""}#${selection?.variant ?? ""}`;
+}
+function buildV2Plugin(config, context) {
+  const sessionTiers = /* @__PURE__ */ new Map();
+  const sessionFirstMessage = /* @__PURE__ */ new Map();
+  const sessionStates = /* @__PURE__ */ new Map();
+  const pendingAttempts = /* @__PURE__ */ new Map();
+  const failedTargets = /* @__PURE__ */ new Map();
+  const selectTarget = (router, tier, stateKey) => {
+    const failed = failedTargets.get(stateKey);
+    const target = targetsFor(router, tier).find((candidate) => !failed?.has(targetKey(candidate)));
+    if (target) return target;
+    failed?.clear();
+    return targetFor(router, tier);
+  };
+  const routePrompt = async (event) => {
+    if (!config.enabled) return;
+    const session = await context.session.get({ sessionID: event.sessionID });
+    const selection = session.model;
+    const directRouter = findRouterForModel({
+      config,
+      providerID: selection?.providerID,
+      modelID: selection?.id
+    });
+    const previous = sessionStates.get(event.sessionID);
+    const ownedModel = previous && v2TargetMatchesSelection(previous.target, selection);
+    const router = directRouter ?? (ownedModel ? config.routers.find((candidate) => candidate.name === previous.routerName) : void 0);
+    if (!router || !selection) return;
+    if (!agentMatches(router, session.agent)) return;
+    const humanText = stripReminderBlocks(event.prompt.text);
+    if (!humanText.trim()) return;
+    const sessionKey = `${router.name}:${event.sessionID}`;
+    if (router.firstMessageOnly) {
+      const isFirst = sessionFirstMessage.get(sessionKey) !== true;
+      sessionFirstMessage.set(sessionKey, true);
+      const previousTier = sessionTiers.get(sessionKey);
+      const retryingFailedTarget = previousTier !== void 0 && failedTargets.has(`${sessionKey}:${previousTier}`);
+      if (!isFirst && !router.pinSession && !retryingFailedTarget) return;
+    }
+    const pinned = router.pinSession ? sessionTiers.get(sessionKey) : void 0;
+    const result = pinned ? {
+      tier: pinned,
+      confidence: 1,
+      cause: "session-pin",
+      signals: []
+    } : await orchestrate(buildOrchestratorOptions(router), { prompt: humanText });
+    const stateKey = `${sessionKey}:${result.tier}`;
+    const target = selectTarget(router, result.tier, stateKey);
+    const alreadySelected = v2TargetMatchesSelection(target, selection);
+    sessionStates.set(event.sessionID, {
+      routerName: router.name,
+      tier: result.tier,
+      stateKey,
+      target
+    });
+    const attempts = pendingAttempts.get(event.sessionID) ?? [];
+    attempts.push({
+      routerName: router.name,
+      tier: result.tier,
+      stateKey,
+      target
+    });
+    pendingAttempts.set(event.sessionID, attempts);
+    sessionTiers.set(sessionKey, result.tier);
+    if (!alreadySelected) {
+      await context.session.switchModel({
+        sessionID: event.sessionID,
+        model: v2ModelRef(target)
+      });
+    }
+    if (!alreadySelected && config.notify) {
+      const label = router.tierLabels[result.tier] ?? result.tier;
+      const conf = result.confidence.toFixed(2);
+      const targetRef = modelKey(target.providerID, target.modelID) ?? "";
+      const targetLabel = target.variant ? `${targetRef} (${target.variant})` : targetRef;
+      console.log(
+        `[auto-router] ${router.name}: ${label} (conf=${conf}, cause=${result.cause}) \u2192 ${targetLabel}`
+      );
+    }
+  };
+  const observeSessionEvents = async (signal) => {
+    try {
+      for await (const event of context.event.subscribe({ signal })) {
+        if (event.type === "session.deleted") {
+          const sessionID = event.data.sessionID;
+          sessionStates.delete(sessionID);
+          pendingAttempts.delete(sessionID);
+          for (const router of config.routers) {
+            const sessionKey = `${router.name}:${sessionID}`;
+            sessionTiers.delete(sessionKey);
+            sessionFirstMessage.delete(sessionKey);
+            for (const stateKey of failedTargets.keys()) {
+              if (stateKey.startsWith(`${sessionKey}:`)) failedTargets.delete(stateKey);
+            }
+          }
+          continue;
+        }
+        if (event.type !== "session.execution.failed" && event.type !== "session.execution.succeeded" && event.type !== "session.execution.interrupted")
+          continue;
+        const attempts = pendingAttempts.get(event.data.sessionID);
+        const state = attempts?.shift();
+        if (!state) continue;
+        if (attempts?.length === 0) pendingAttempts.delete(event.data.sessionID);
+        if (event.type === "session.execution.failed" && V2_NON_MODEL_ERROR_TYPES.has(event.data.error.type))
+          continue;
+        if (event.type === "session.execution.succeeded") {
+          failedTargets.delete(state.stateKey);
+          continue;
+        }
+        if (event.type === "session.execution.interrupted") continue;
+        const failed = failedTargets.get(state.stateKey) ?? /* @__PURE__ */ new Set();
+        failed.add(targetKey(state.target));
+        failedTargets.set(state.stateKey, failed);
+      }
+    } catch (error) {
+      if (!signal.aborted) {
+        console.error(
+          `[auto-router] event observer stopped: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  };
+  return {
+    setup: async () => {
+      const registration = await context.session.hook("prompt", routePrompt);
+      const controller = new AbortController();
+      void observeSessionEvents(controller.signal);
+      let cleanupPromise;
+      return () => {
+        if (!cleanupPromise) {
+          const pending = (async () => {
+            controller.abort();
+            try {
+              await registration.dispose();
+            } finally {
+              sessionTiers.clear();
+              sessionFirstMessage.clear();
+              sessionStates.clear();
+              pendingAttempts.clear();
+              failedTargets.clear();
+            }
+          })();
+          cleanupPromise = pending;
+          void pending.catch(() => {
+            if (cleanupPromise === pending) cleanupPromise = void 0;
+          });
+        }
+        return cleanupPromise;
+      };
+    }
+  };
+}
+async function createAutoRouterV2WithConfig(config, context) {
+  return buildV2Plugin(config, context).setup();
+}
+var pluginModule = Plugin.define({
   id: "opencode-auto-router",
-  server: async () => createAutoRouter()
-};
+  setup: async (context) => {
+    const config = normalizeConfig(loadConfig());
+    return createAutoRouterV2WithConfig(config, context);
+  }
+});
 var index_default = pluginModule;
 export {
   createAutoRouter,
+  createAutoRouterV2WithConfig,
   createAutoRouterWithConfig,
   createHeuristicClassifier,
   index_default as default,

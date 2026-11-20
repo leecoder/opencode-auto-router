@@ -24,9 +24,13 @@ export interface ClassifierConfig {
   model?: string
   /** bert: ONNX file variant inside the repo (e.g. "model_quantized.onnx") */
   onnxFile?: string
+  /** bert: maximum prompt tokens sent to the classifier (default 1024) */
+  maxInputTokens?: number
+  /** bert: optional ONNX Runtime CPU intra-op thread limit */
+  intraOpNumThreads?: number
   /** bert: map pipeline labels to tiers; missing labels → MEDIUM fallback */
   labelToTier?: Partial<Record<string, Tier>>
-  /** Hard deadline per classify() call in ms (bert default 10000, apple-fm 15000) */
+  /** Best-effort deadline per classify() call in ms (bert default 10000, apple-fm 15000) */
   timeoutMs?: number
   /** priority mode: below this confidence the backend is skipped (default 0.5) */
   minConfidence?: number
@@ -241,7 +245,23 @@ function normalizeClassifierKinds(
   return known.length > 0 ? known : ["heuristic"]
 }
 
+function validateOptionalPositiveInteger(value: unknown, path: string): void {
+  if (value === undefined) return
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${path} must be a positive integer`)
+  }
+}
+
 export function normalizeRouter(raw: RouterConfig | undefined, index: number): NormalizedRouter {
+  const classifierOptions = raw?.classifierOptions ?? {}
+  validateOptionalPositiveInteger(
+    classifierOptions.bert?.maxInputTokens,
+    `router[${index}].classifierOptions.bert.maxInputTokens`,
+  )
+  validateOptionalPositiveInteger(
+    classifierOptions.bert?.intraOpNumThreads,
+    `router[${index}].classifierOptions.bert.intraOpNumThreads`,
+  )
   const tierModels = { ...FULL_TIER_DEFAULTS }
   const tierFallbacks: TierModelFallbacks = {}
   const tierVariants = { ...(raw?.tierVariants ?? {}) }
@@ -272,7 +292,7 @@ export function normalizeRouter(raw: RouterConfig | undefined, index: number): N
     tokenThresholds: { ...DEFAULT_TOKEN_THRESHOLDS, ...raw?.tokenThresholds },
     classifiers: normalizeClassifierKinds(raw?.classifier, raw?.classifiers),
     classifierCombination: raw?.classifierCombination ?? "priority",
-    classifierOptions: raw?.classifierOptions ?? {},
+    classifierOptions,
     pinSession: raw?.pinSession ?? false,
     firstMessageOnly: raw?.firstMessageOnly ?? false,
     agents: raw?.agents && raw.agents.length > 0 ? raw.agents : null,

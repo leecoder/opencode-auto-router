@@ -3,7 +3,11 @@ import assert from "node:assert/strict"
 import { classifyRequest, stripReminderBlocks } from "../dist/classifier.js"
 import { normalizeConfig, modelKey, normalizeRouter, DEFAULT_TIER_MODELS } from "../dist/config.js"
 import { findRouterForModel } from "../dist/config-loader.js"
-import { createAutoRouter, createAutoRouterWithConfig } from "../dist/index.js"
+import {
+  createAutoRouter,
+  createAutoRouterV2WithConfig,
+  createAutoRouterWithConfig,
+} from "../dist/index.js"
 
 const cfg = normalizeConfig(undefined)
 
@@ -626,4 +630,385 @@ test("chat.message: non-model session errors keep the primary target", async () 
     await hooks["chat.message"](input, retry)
     assert.deepEqual(retry.message.model, { providerID: "litellm", modelID: "error-primary" })
   }
+})
+
+function createEventStream() {
+  const queue = []
+  const waiters = []
+  let closed = false
+  let acknowledge
+
+  const close = () => {
+    if (closed) return
+    closed = true
+    while (waiters.length > 0) waiters.shift()({ done: true, value: undefined })
+  }
+
+  const stream = {
+    next() {
+      acknowledge?.()
+      acknowledge = undefined
+      if (queue.length > 0) {
+        const item = queue.shift()
+        acknowledge = item.consumed
+        return Promise.resolve({ done: false, value: item.value })
+      }
+      if (closed) return Promise.resolve({ done: true, value: undefined })
+      return new Promise((resolve) => waiters.push(resolve))
+    },
+    [Symbol.asyncIterator]() {
+      return this
+    },
+  }
+
+  return {
+    subscribe({ signal }) {
+      signal.addEventListener("abort", close, { once: true })
+      return stream
+    },
+    push(value) {
+      return new Promise((resolve) => {
+        const item = { value, consumed: resolve }
+        if (waiters.length > 0) {
+          acknowledge = item.consumed
+          waiters.shift()({ done: false, value })
+        } else {
+          queue.push(item)
+        }
+      })
+    },
+    async flush() {
+      await new Promise((resolve) => setImmediate(resolve))
+    },
+  }
+}
+
+function createV2Context(initialModel, sessionAgent = "build", disposeHook = async () => {}) {
+  const events = createEventStream()
+  let selectedModel = { ...initialModel }
+  let promptHook
+  let disposed = false
+  let disposeCalls = 0
+  const switches = []
+
+  return {
+    context: {
+      session: {
+        async get() {
+          return { id: "session-v2", model: selectedModel, agent: sessionAgent }
+        },
+        async switchModel({ model }) {
+          selectedModel = { ...model }
+          switches.push({ ...model })
+        },
+        async hook(name, callback) {
+          assert.equal(name, "prompt")
+          promptHook = callback
+          return {
+            async dispose() {
+              disposeCalls += 1
+              await disposeHook()
+              disposed = true
+            },
+          }
+        },
+      },
+      event: {
+        subscribe: events.subscribe,
+      },
+    },
+    events,
+    switches,
+    get promptHook() {
+      return promptHook
+    },
+    get disposed() {
+      return disposed
+    },
+    get disposeCalls() {
+      return disposeCalls
+    },
+  }
+}
+
+function v2Prompt(text = "hello") {
+  return {
+    sessionID: "session-v2",
+    messageID: "message-v2",
+    prompt: { text },
+    delivery: "steer",
+  }
+}
+
+test("v2 plugin: prompt hook switches model and honors firstMessageOnly", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2",
+        firstMessageOnly: true,
+        tierModels: {
+          SIMPLE: "litellm/simple-v2",
+          MEDIUM: "litellm/medium-v2",
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt())
+  await fake.promptHook(v2Prompt("please continue"))
+
+  assert.deepEqual(fake.switches, [{ providerID: "litellm", id: "simple-v2" }])
+  await cleanup()
+  assert.equal(fake.disposed, true)
+})
+
+test("v2 plugin: failed execution advances to the configured fallback", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2-fallback",
+        tierModels: {
+          SIMPLE: {
+            model: "litellm/primary-v2",
+            fallbacks: ["litellm/secondary-v2"],
+          },
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2-fallback" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt())
+  await fake.events.push({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "session-v2",
+      error: { type: "provider.transport", message: "primary unavailable" },
+    },
+  })
+  await fake.events.flush()
+  await fake.promptHook(v2Prompt("retry"))
+
+  assert.deepEqual(fake.switches, [
+    { providerID: "litellm", id: "primary-v2" },
+    { providerID: "litellm", id: "secondary-v2" },
+  ])
+  await cleanup()
+})
+
+test("v2 plugin: firstMessageOnly still permits a failed-target fallback retry", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2-first-fallback",
+        firstMessageOnly: true,
+        tierModels: {
+          SIMPLE: {
+            model: "litellm/first-primary",
+            fallbacks: ["litellm/first-secondary"],
+          },
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2-first-fallback" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt())
+  await fake.events.push({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "session-v2",
+      error: { type: "provider.transport", message: "primary unavailable" },
+    },
+  })
+  await fake.events.flush()
+  await fake.promptHook(v2Prompt("retry"))
+
+  assert.deepEqual(fake.switches, [
+    { providerID: "litellm", id: "first-primary" },
+    { providerID: "litellm", id: "first-secondary" },
+  ])
+  await cleanup()
+})
+
+test("v2 plugin: terminal events apply to prompts in submission order", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2-correlated",
+        tierModels: {
+          SIMPLE: {
+            model: "litellm/simple-primary",
+            fallbacks: ["litellm/simple-secondary"],
+          },
+          MEDIUM: "litellm/medium",
+          COMPLEX: "litellm/complex",
+          REASONING: "litellm/reasoning",
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2-correlated" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt("hi"))
+  await fake.promptHook(v2Prompt("Please design a distributed database architecture with detailed tradeoffs"))
+  await fake.events.push({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "session-v2",
+      error: { type: "provider.transport", message: "simple model unavailable" },
+    },
+  })
+  await fake.events.flush()
+  await fake.promptHook(v2Prompt("hi"))
+
+  assert.deepEqual(fake.switches, [
+    { providerID: "litellm", id: "simple-primary" },
+    { providerID: "litellm", id: "medium" },
+    { providerID: "litellm", id: "simple-secondary" },
+  ])
+  await cleanup()
+})
+
+test("v2 plugin: interrupted execution consumes its pending attempt", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2-interrupted",
+        tierModels: {
+          SIMPLE: "litellm/simple",
+          MEDIUM: {
+            model: "litellm/medium-primary",
+            fallbacks: ["litellm/medium-secondary"],
+          },
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2-interrupted" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt("hi"))
+  await fake.promptHook(v2Prompt("implement a function that connects to a database and handles errors"))
+  await fake.events.push({
+    type: "session.execution.interrupted",
+    data: { sessionID: "session-v2" },
+  })
+  await fake.events.flush()
+  await fake.events.push({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "session-v2",
+      error: { type: "provider.transport", message: "medium model unavailable" },
+    },
+  })
+  await fake.events.flush()
+  await fake.promptHook(v2Prompt("implement a function that connects to a database and handles errors"))
+
+  assert.deepEqual(fake.switches, [
+    { providerID: "litellm", id: "simple" },
+    { providerID: "litellm", id: "medium-primary" },
+    { providerID: "litellm", id: "medium-secondary" },
+  ])
+  await cleanup()
+})
+
+test("v2 plugin: session deletion clears pending routing state and cleanup is idempotent", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2-delete",
+        tierModels: {
+          SIMPLE: "litellm/delete-simple",
+          MEDIUM: "litellm/delete-medium",
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2-delete" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt())
+  await fake.events.push({
+    type: "session.deleted",
+    data: { sessionID: "session-v2" },
+  })
+  await fake.events.flush()
+  await fake.promptHook(
+    v2Prompt("implement a function that connects to a database and handles errors"),
+  )
+  assert.deepEqual(fake.switches, [{ providerID: "litellm", id: "delete-simple" }])
+
+  await cleanup()
+  await cleanup()
+
+  assert.equal(fake.disposed, true)
+  assert.equal(fake.disposeCalls, 1)
+})
+
+test("v2 plugin: concurrent cleanup callers await the same disposal", async () => {
+  let resolveDispose
+  const pendingDispose = new Promise((resolve) => {
+    resolveDispose = resolve
+  })
+  const fake = createV2Context(
+    { providerID: "auto-router", id: "v2-cleanup-retry" },
+    "build",
+    async () => {
+      if (fake.disposeCalls === 1) await pendingDispose
+    },
+  )
+  const cleanup = await createAutoRouterV2WithConfig(
+    normalizeConfig({ notify: false, routers: [{ name: "v2-cleanup-retry" }] }),
+    fake.context,
+  )
+
+  const first = cleanup()
+  const concurrent = cleanup()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(fake.disposeCalls, 1)
+  let concurrentSettled = false
+  void concurrent.then(() => {
+    concurrentSettled = true
+  })
+  await Promise.resolve()
+  assert.equal(concurrentSettled, false)
+
+  resolveDispose()
+  await Promise.all([first, concurrent])
+  assert.equal(fake.disposeCalls, 1)
+  assert.equal(fake.disposed, true)
+})
+
+test("v2 plugin: cleanup can retry when hook disposal rejects", async () => {
+  let disposeAttempts = 0
+  const fake = createV2Context(
+    { providerID: "auto-router", id: "v2-cleanup-retry" },
+    "build",
+    async () => {
+      disposeAttempts += 1
+      if (disposeAttempts === 1) throw new Error("temporary dispose failure")
+    },
+  )
+  const cleanup = await createAutoRouterV2WithConfig(
+    normalizeConfig({ notify: false, routers: [{ name: "v2-cleanup-retry" }] }),
+    fake.context,
+  )
+
+  await assert.rejects(cleanup(), /temporary dispose failure/)
+  await cleanup()
+
+  assert.equal(fake.disposeCalls, 2)
+  assert.equal(fake.disposed, true)
 })

@@ -157,7 +157,22 @@ function normalizeClassifierKinds(shorthand, full) {
   const known = raw.filter((kind) => KNOWN_CLASSIFIER_KINDS.includes(kind));
   return known.length > 0 ? known : ["heuristic"];
 }
+function validateOptionalPositiveInteger(value, path) {
+  if (value === void 0) return;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${path} must be a positive integer`);
+  }
+}
 function normalizeRouter(raw, index) {
+  const classifierOptions = raw?.classifierOptions ?? {};
+  validateOptionalPositiveInteger(
+    classifierOptions.bert?.maxInputTokens,
+    `router[${index}].classifierOptions.bert.maxInputTokens`
+  );
+  validateOptionalPositiveInteger(
+    classifierOptions.bert?.intraOpNumThreads,
+    `router[${index}].classifierOptions.bert.intraOpNumThreads`
+  );
   const tierModels = { ...FULL_TIER_DEFAULTS };
   const tierFallbacks = {};
   const tierVariants = { ...raw?.tierVariants ?? {} };
@@ -188,7 +203,7 @@ function normalizeRouter(raw, index) {
     tokenThresholds: { ...DEFAULT_TOKEN_THRESHOLDS, ...raw?.tokenThresholds },
     classifiers: normalizeClassifierKinds(raw?.classifier, raw?.classifiers),
     classifierCombination: raw?.classifierCombination ?? "priority",
-    classifierOptions: raw?.classifierOptions ?? {},
+    classifierOptions,
     pinSession: raw?.pinSession ?? false,
     firstMessageOnly: raw?.firstMessageOnly ?? false,
     agents: raw?.agents && raw.agents.length > 0 ? raw.agents : null,

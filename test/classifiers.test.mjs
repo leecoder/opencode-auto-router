@@ -1,6 +1,14 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { orchestrate, resolveTierFromLabel } from "../dist/index.js"
+import {
+  orchestrate,
+  resolveTierFromLabel,
+} from "../dist/index.js"
+import {
+  bertPipelineCacheKey,
+  boundPrompt as boundBertPrompt,
+  resolveOnnxModelOptions,
+} from "../dist/classifiers/bert.js"
 import { createHeuristicClassifier } from "../dist/index.js"
 import { normalizeConfig, normalizeRouter } from "../dist/config.js"
 import { createAutoRouterWithConfig } from "../dist/index.js"
@@ -212,6 +220,62 @@ test("bert label mapping: custom map overrides defaults", async () => {
   assert.equal(resolveTierFromLabel("high", map), "REASONING")
 })
 
+function fakeBertPipeline(modelMaxLength) {
+  const tokenizer = (text) => ({
+    input_ids: { data: Array.from(text, (character) => character.codePointAt(0)) },
+  })
+  tokenizer.model_max_length = modelMaxLength
+  tokenizer._tokenizerConfig = {}
+  tokenizer.decode = (ids) => String.fromCodePoint(...ids)
+  return { tokenizer }
+}
+
+test("bert prompt bound respects the model context limit", () => {
+  const pipe = fakeBertPipeline(40)
+  const result = boundBertPrompt(pipe, `${"head".repeat(20)}${"tail".repeat(20)}`, 1024)
+  assert.equal(result.truncated, true)
+  assert.ok(pipe.tokenizer(result.prompt).input_ids.data.length <= 40)
+  assert.ok(result.prompt.startsWith("headhead"))
+  assert.ok(result.prompt.endsWith("tailtail"))
+  assert.match(result.prompt, /middle omitted/)
+})
+
+test("bert prompt bound uses a single window when the token budget cannot fit the marker", () => {
+  const pipe = fakeBertPipeline(2)
+  const result = boundBertPrompt(pipe, "a very long prompt", 1)
+  assert.equal(result.truncated, true)
+  assert.equal(pipe.tokenizer(result.prompt).input_ids.data.length, 1)
+  assert.doesNotMatch(result.prompt, /middle omitted/)
+})
+
+test("bert ONNX file option selects the configured model filename and dtype", () => {
+  assert.deepEqual(resolveOnnxModelOptions("onnx/model_quantized.onnx"), {
+    model_file_name: "model",
+    dtype: "q8",
+  })
+  assert.deepEqual(resolveOnnxModelOptions("onnx/model.onnx"), {
+    model_file_name: "model",
+    dtype: "fp32",
+  })
+})
+
+test("bert pipeline cache key excludes per-request input limits but includes session options", () => {
+  const base = {
+    model: "test/model",
+    onnxFile: "onnx/model_quantized.onnx",
+    device: "cpu",
+    intraOpNumThreads: 2,
+  }
+  assert.equal(
+    bertPipelineCacheKey({ ...base, maxInputTokens: 256 }),
+    bertPipelineCacheKey({ ...base, maxInputTokens: 2048 }),
+  )
+  assert.notEqual(
+    bertPipelineCacheKey(base),
+    bertPipelineCacheKey({ ...base, intraOpNumThreads: 4 }),
+  )
+})
+
 // --- config normalization ---
 
 test("config: classifier defaults to heuristic-only", () => {
@@ -233,7 +297,7 @@ test("config: classifiers array + vote combination", () => {
         classifiers: ["heuristic", "bert", "apple-fm"],
         classifierCombination: "vote",
         classifierOptions: {
-          bert: { model: "test/model", timeoutMs: 5000 },
+          bert: { model: "test/model", timeoutMs: 5000, maxInputTokens: 256, intraOpNumThreads: 1 },
         },
       },
     ],
@@ -243,6 +307,23 @@ test("config: classifiers array + vote combination", () => {
   assert.equal(router.classifierCombination, "vote")
   assert.equal(router.classifierOptions.bert.model, "test/model")
   assert.equal(router.classifierOptions.bert.timeoutMs, 5000)
+  assert.equal(router.classifierOptions.bert.maxInputTokens, 256)
+  assert.equal(router.classifierOptions.bert.intraOpNumThreads, 1)
+})
+
+test("config: BERT numeric options require positive integers", () => {
+  for (const option of ["maxInputTokens", "intraOpNumThreads"]) {
+    for (const value of ["512", 0, -1, 1.5]) {
+      assert.throws(
+        () =>
+          normalizeRouter(
+            { classifierOptions: { bert: { [option]: value } } },
+            2,
+          ),
+        new RegExp(`router\\[2\\].*classifierOptions\\.bert\\.${option} must be a positive integer`),
+      )
+    }
+  }
 })
 
 test("config: unknown classifier kinds are dropped, empty result falls back", () => {
