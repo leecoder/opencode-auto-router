@@ -641,20 +641,27 @@ function buildV2Plugin(config, context) {
       const registration = await context.session.hook("prompt", routePrompt);
       const controller = new AbortController();
       void observeSessionEvents(controller.signal);
-      let cleanedUp = false;
-      return async () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        controller.abort();
-        try {
-          await registration.dispose();
-        } finally {
-          sessionTiers.clear();
-          sessionFirstMessage.clear();
-          sessionStates.clear();
-          pendingAttempts.clear();
-          failedTargets.clear();
+      let cleanupPromise;
+      return () => {
+        if (!cleanupPromise) {
+          const pending = (async () => {
+            controller.abort();
+            try {
+              await registration.dispose();
+            } finally {
+              sessionTiers.clear();
+              sessionFirstMessage.clear();
+              sessionStates.clear();
+              pendingAttempts.clear();
+              failedTargets.clear();
+            }
+          })();
+          cleanupPromise = pending;
+          void pending.catch(() => {
+            if (cleanupPromise === pending) cleanupPromise = void 0;
+          });
         }
+        return cleanupPromise;
       };
     }
   };

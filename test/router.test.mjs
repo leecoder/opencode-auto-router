@@ -683,7 +683,7 @@ function createEventStream() {
   }
 }
 
-function createV2Context(initialModel, sessionAgent = "build") {
+function createV2Context(initialModel, sessionAgent = "build", disposeHook = async () => {}) {
   const events = createEventStream()
   let selectedModel = { ...initialModel }
   let promptHook
@@ -707,6 +707,7 @@ function createV2Context(initialModel, sessionAgent = "build") {
           return {
             async dispose() {
               disposeCalls += 1
+              await disposeHook()
               disposed = true
             },
           }
@@ -954,4 +955,60 @@ test("v2 plugin: session deletion clears pending routing state and cleanup is id
 
   assert.equal(fake.disposed, true)
   assert.equal(fake.disposeCalls, 1)
+})
+
+test("v2 plugin: concurrent cleanup callers await the same disposal", async () => {
+  let resolveDispose
+  const pendingDispose = new Promise((resolve) => {
+    resolveDispose = resolve
+  })
+  const fake = createV2Context(
+    { providerID: "auto-router", id: "v2-cleanup-retry" },
+    "build",
+    async () => {
+      if (fake.disposeCalls === 1) await pendingDispose
+    },
+  )
+  const cleanup = await createAutoRouterV2WithConfig(
+    normalizeConfig({ notify: false, routers: [{ name: "v2-cleanup-retry" }] }),
+    fake.context,
+  )
+
+  const first = cleanup()
+  const concurrent = cleanup()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(fake.disposeCalls, 1)
+  let concurrentSettled = false
+  void concurrent.then(() => {
+    concurrentSettled = true
+  })
+  await Promise.resolve()
+  assert.equal(concurrentSettled, false)
+
+  resolveDispose()
+  await Promise.all([first, concurrent])
+  assert.equal(fake.disposeCalls, 1)
+  assert.equal(fake.disposed, true)
+})
+
+test("v2 plugin: cleanup can retry when hook disposal rejects", async () => {
+  let disposeAttempts = 0
+  const fake = createV2Context(
+    { providerID: "auto-router", id: "v2-cleanup-retry" },
+    "build",
+    async () => {
+      disposeAttempts += 1
+      if (disposeAttempts === 1) throw new Error("temporary dispose failure")
+    },
+  )
+  const cleanup = await createAutoRouterV2WithConfig(
+    normalizeConfig({ notify: false, routers: [{ name: "v2-cleanup-retry" }] }),
+    fake.context,
+  )
+
+  await assert.rejects(cleanup(), /temporary dispose failure/)
+  await cleanup()
+
+  assert.equal(fake.disposeCalls, 2)
+  assert.equal(fake.disposed, true)
 })
