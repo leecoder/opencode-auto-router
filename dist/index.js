@@ -5,11 +5,15 @@ import {
 import {
   findRouterForModel,
   loadConfig
-} from "./chunk-MP6HYRM3.js";
+} from "./chunk-UIBU7BVP.js";
 import {
   modelKey,
   normalizeConfig
-} from "./chunk-XVEMK6MM.js";
+} from "./chunk-GGEPTD5V.js";
+import {
+  createBertClassifier,
+  resolveTierFromLabel
+} from "./chunk-N4XDYKMX.js";
 
 // src/index.ts
 import { Plugin } from "@opencode/plugin";
@@ -52,72 +56,6 @@ function createHeuristicClassifier(options) {
         ok: false,
         error: error instanceof Error ? error.message : String(error)
       };
-    }
-  };
-}
-
-// src/classifiers/bert.ts
-var DEFAULT_BERT_MODEL = "mustafacolakoglu94/llm-query-complexity-classifier-onnx";
-var DEFAULT_LABEL_TO_TIER = {
-  LOW: "SIMPLE",
-  MEDIUM: "MEDIUM",
-  HIGH: "COMPLEX"
-};
-var pipelinePromise = null;
-var pipelineKey = "";
-function resolveTierFromLabel(label, resolver) {
-  if (!resolver) return DEFAULT_LABEL_TO_TIER[label.toUpperCase()] ?? null;
-  if (typeof resolver === "function") return resolver(label);
-  const mapped = resolver[label] ?? resolver[label.toUpperCase()];
-  return mapped ?? null;
-}
-async function loadPipeline(options) {
-  const key = `${options.model}:${options.onnxFile ?? ""}:${options.device ?? ""}`;
-  if (pipelinePromise && pipelineKey === key) return pipelinePromise;
-  pipelinePromise = (async () => {
-    const { pipeline } = await import("@huggingface/transformers");
-    return await pipeline("text-classification", options.model, {
-      dtype: "q8",
-      device: options.device ?? "cpu"
-    });
-  })();
-  pipelineKey = key;
-  return pipelinePromise;
-}
-function createBertClassifier(options = {}) {
-  const model = options.model ?? DEFAULT_BERT_MODEL;
-  const timeoutMs = options.timeoutMs ?? 1e4;
-  return async (request) => {
-    const started = performance.now();
-    const fail = (error) => ({
-      kind: "bert",
-      tier: "MEDIUM",
-      confidence: 0,
-      reason: "bert unavailable",
-      latencyMs: performance.now() - started,
-      ok: false,
-      error
-    });
-    try {
-      const pipe = await loadPipeline({ model, onnxFile: options.onnxFile, device: options.device });
-      const infer = pipe(request.prompt);
-      const timeout = new Promise(
-        (_, reject) => setTimeout(() => reject(new Error(`bert timeout after ${timeoutMs}ms`)), timeoutMs)
-      );
-      const outputs = (await Promise.race([infer, timeout]))[0];
-      if (!outputs?.label) return fail("bert returned no label");
-      const tier = resolveTierFromLabel(outputs.label, options.labelToTier);
-      if (!tier) return fail(`unmapped label: ${outputs.label}`);
-      return {
-        kind: "bert",
-        tier,
-        confidence: outputs.score,
-        reason: `label=${outputs.label} p=${outputs.score.toFixed(2)}`,
-        latencyMs: performance.now() - started,
-        ok: true
-      };
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error));
     }
   };
 }
@@ -341,6 +279,8 @@ function buildOrchestratorOptions(router) {
       return createBertClassifier({
         model: kindOptions.model,
         onnxFile: kindOptions.onnxFile,
+        maxInputTokens: kindOptions.maxInputTokens,
+        intraOpNumThreads: kindOptions.intraOpNumThreads,
         labelToTier: kindOptions.labelToTier ? kindOptions.labelToTier : void 0,
         timeoutMs: kindOptions.timeoutMs
       });

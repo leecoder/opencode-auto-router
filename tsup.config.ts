@@ -1,7 +1,13 @@
 import { defineConfig } from "tsup"
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/config.ts", "src/classifier.ts", "src/config-loader.ts"],
+  entry: [
+    "src/index.ts",
+    "src/config.ts",
+    "src/classifier.ts",
+    "src/config-loader.ts",
+    "src/classifiers/bert.ts",
+  ],
   format: ["esm"],
   dts: true,
   clean: true,

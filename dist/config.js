@@ -10,7 +10,7 @@ import {
   modelKey,
   normalizeConfig,
   normalizeRouter
-} from "./chunk-XVEMK6MM.js";
+} from "./chunk-GGEPTD5V.js";
 export {
   DEFAULT_CODE_KEYWORDS,
   DEFAULT_DIMENSION_WEIGHTS,

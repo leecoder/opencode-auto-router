@@ -141,6 +141,8 @@ function buildOrchestratorOptions(router: NormalizedRouter): OrchestratorOptions
       return createBertClassifier({
         model: kindOptions.model,
         onnxFile: kindOptions.onnxFile,
+        maxInputTokens: kindOptions.maxInputTokens,
+        intraOpNumThreads: kindOptions.intraOpNumThreads,
         labelToTier: kindOptions.labelToTier
           ? (kindOptions.labelToTier as Record<string, string>)
           : undefined,
@@ -567,6 +569,10 @@ const pluginModule = Plugin.define({
   },
 })
 
-export { resolveTierFromLabel, orchestrate, createHeuristicClassifier }
+export {
+  resolveTierFromLabel,
+  orchestrate,
+  createHeuristicClassifier,
+}
 export type { OrchestratorOptions, OrchestratedResult, ClassifierFn, ClassifierVerdict }
 export default pluginModule
