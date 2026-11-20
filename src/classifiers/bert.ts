@@ -81,14 +81,18 @@ export function resolveTierFromLabel(
   return (mapped as Tier | undefined) ?? null
 }
 
-export function boundPrompt(pipe: TextClassificationPipeline, prompt: string, maxInputTokens: number) {
+export function boundPrompt(
+  pipe: TextClassificationPipeline,
+  prompt: string,
+  maxInputTokens: number,
+): { prompt: string; truncated: boolean; strategy: "none" | "prefix" | "head+tail" } {
   const tokenIDs = Array.from(pipe.tokenizer(prompt, { padding: false, truncation: false }).input_ids.data)
   const modelLimit = pipe.tokenizer.model_max_length
   const effectiveLimit =
     Number.isFinite(modelLimit) && modelLimit > 0
       ? Math.min(maxInputTokens, Math.floor(modelLimit))
       : maxInputTokens
-  if (tokenIDs.length <= effectiveLimit) return { prompt, truncated: false }
+  if (tokenIDs.length <= effectiveLimit) return { prompt, truncated: false, strategy: "none" }
 
   const marker = "\n[...middle omitted...]\n"
   const markerTokenCount = Array.from(
@@ -98,6 +102,7 @@ export function boundPrompt(pipe: TextClassificationPipeline, prompt: string, ma
     return {
       prompt: pipe.tokenizer.decode(tokenIDs.slice(0, effectiveLimit), { skip_special_tokens: true }),
       truncated: true,
+      strategy: "prefix",
     }
   }
 
@@ -108,10 +113,12 @@ export function boundPrompt(pipe: TextClassificationPipeline, prompt: string, ma
   const boundedTokenCount = Array.from(
     pipe.tokenizer(boundedPrompt, { padding: false, truncation: false }).input_ids.data,
   ).length
-  if (boundedTokenCount <= effectiveLimit) return { prompt: boundedPrompt, truncated: true }
+  if (boundedTokenCount <= effectiveLimit)
+    return { prompt: boundedPrompt, truncated: true, strategy: "head+tail" }
   return {
     prompt: pipe.tokenizer.decode(tokenIDs.slice(0, effectiveLimit), { skip_special_tokens: true }),
     truncated: true,
+    strategy: "prefix",
   }
 }
 
@@ -200,7 +207,7 @@ export function createBertClassifier(options: BertClassifierOptions = {}): Class
               kind: "bert" as const,
               tier,
               confidence: outputs.score,
-              reason: `label=${outputs.label} p=${outputs.score.toFixed(2)} tokens<=${maxInputTokens}${bounded.truncated ? " truncated=head+tail" : ""}`,
+              reason: `label=${outputs.label} p=${outputs.score.toFixed(2)} tokens<=${maxInputTokens}${bounded.truncated ? ` truncated=${bounded.strategy}` : ""}`,
               latencyMs: performance.now() - started,
               ok: true,
             }

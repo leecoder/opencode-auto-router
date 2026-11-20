@@ -1,12 +1,14 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
-  bertPipelineCacheKey,
-  boundBertPrompt,
   orchestrate,
-  resolveOnnxModelOptions,
   resolveTierFromLabel,
 } from "../dist/index.js"
+import {
+  bertPipelineCacheKey,
+  boundPrompt as boundBertPrompt,
+  resolveOnnxModelOptions,
+} from "../dist/classifiers/bert.js"
 import { createHeuristicClassifier } from "../dist/index.js"
 import { normalizeConfig, normalizeRouter } from "../dist/config.js"
 import { createAutoRouterWithConfig } from "../dist/index.js"
@@ -233,6 +235,8 @@ test("bert prompt bound respects the model context limit", () => {
   const result = boundBertPrompt(pipe, `${"head".repeat(20)}${"tail".repeat(20)}`, 1024)
   assert.equal(result.truncated, true)
   assert.ok(pipe.tokenizer(result.prompt).input_ids.data.length <= 40)
+  assert.ok(result.prompt.startsWith("headhead"))
+  assert.ok(result.prompt.endsWith("tailtail"))
   assert.match(result.prompt, /middle omitted/)
 })
 
@@ -305,6 +309,21 @@ test("config: classifiers array + vote combination", () => {
   assert.equal(router.classifierOptions.bert.timeoutMs, 5000)
   assert.equal(router.classifierOptions.bert.maxInputTokens, 256)
   assert.equal(router.classifierOptions.bert.intraOpNumThreads, 1)
+})
+
+test("config: BERT numeric options require positive integers", () => {
+  for (const option of ["maxInputTokens", "intraOpNumThreads"]) {
+    for (const value of ["512", 0, -1, 1.5]) {
+      assert.throws(
+        () =>
+          normalizeRouter(
+            { classifierOptions: { bert: { [option]: value } } },
+            2,
+          ),
+        new RegExp(`router\\[2\\].*classifierOptions\\.bert\\.${option} must be a positive integer`),
+      )
+    }
+  }
 })
 
 test("config: unknown classifier kinds are dropped, empty result falls back", () => {

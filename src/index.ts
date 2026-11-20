@@ -11,13 +11,7 @@ import {
 import { findRouterForModel, loadConfig, modelKey } from "./config-loader"
 import { stripReminderBlocks } from "./classifier"
 import { createHeuristicClassifier } from "./classifiers/heuristic"
-import {
-  boundPrompt as boundBertPrompt,
-  bertPipelineCacheKey,
-  createBertClassifier,
-  resolveOnnxModelOptions,
-  resolveTierFromLabel,
-} from "./classifiers/bert"
+import { createBertClassifier, resolveTierFromLabel } from "./classifiers/bert"
 import { createAppleFmClassifier } from "./classifiers/apple"
 import { orchestrate, type OrchestratorOptions, type OrchestratedResult } from "./classifiers/orchestrator"
 import type { ClassifierFn, ClassifierVerdict } from "./classifiers/types"
@@ -569,9 +563,6 @@ const pluginModule = Plugin.define({
 })
 
 export {
-  boundBertPrompt,
-  bertPipelineCacheKey,
-  resolveOnnxModelOptions,
   resolveTierFromLabel,
   orchestrate,
   createHeuristicClassifier,
