@@ -520,6 +520,7 @@ function buildV2Plugin(config, context) {
   const sessionTiers = /* @__PURE__ */ new Map();
   const sessionFirstMessage = /* @__PURE__ */ new Map();
   const sessionStates = /* @__PURE__ */ new Map();
+  const pendingAttempts = /* @__PURE__ */ new Map();
   const failedTargets = /* @__PURE__ */ new Map();
   const selectTarget = (router, tier, stateKey) => {
     const failed = failedTargets.get(stateKey);
@@ -548,7 +549,9 @@ function buildV2Plugin(config, context) {
     if (router.firstMessageOnly) {
       const isFirst = sessionFirstMessage.get(sessionKey) !== true;
       sessionFirstMessage.set(sessionKey, true);
-      if (!isFirst && !router.pinSession) return;
+      const previousTier = sessionTiers.get(sessionKey);
+      const retryingFailedTarget = previousTier !== void 0 && failedTargets.has(`${sessionKey}:${previousTier}`);
+      if (!isFirst && !router.pinSession && !retryingFailedTarget) return;
     }
     const pinned = router.pinSession ? sessionTiers.get(sessionKey) : void 0;
     const result = pinned ? {
@@ -566,6 +569,14 @@ function buildV2Plugin(config, context) {
       stateKey,
       target
     });
+    const attempts = pendingAttempts.get(event.sessionID) ?? [];
+    attempts.push({
+      routerName: router.name,
+      tier: result.tier,
+      stateKey,
+      target
+    });
+    pendingAttempts.set(event.sessionID, attempts);
     sessionTiers.set(sessionKey, result.tier);
     if (!alreadySelected) {
       await context.session.switchModel({
@@ -573,7 +584,7 @@ function buildV2Plugin(config, context) {
         model: v2ModelRef(target)
       });
     }
-    if (config.notify) {
+    if (!alreadySelected && config.notify) {
       const label = router.tierLabels[result.tier] ?? result.tier;
       const conf = result.confidence.toFixed(2);
       const targetRef = modelKey(target.providerID, target.modelID) ?? "";
@@ -586,16 +597,33 @@ function buildV2Plugin(config, context) {
   const observeSessionEvents = async (signal) => {
     try {
       for await (const event of context.event.subscribe({ signal })) {
-        if (event.type !== "session.execution.failed" && event.type !== "session.execution.succeeded")
+        if (event.type === "session.deleted") {
+          const sessionID = event.data.sessionID;
+          sessionStates.delete(sessionID);
+          pendingAttempts.delete(sessionID);
+          for (const router of config.routers) {
+            const sessionKey = `${router.name}:${sessionID}`;
+            sessionTiers.delete(sessionKey);
+            sessionFirstMessage.delete(sessionKey);
+            for (const stateKey of failedTargets.keys()) {
+              if (stateKey.startsWith(`${sessionKey}:`)) failedTargets.delete(stateKey);
+            }
+          }
           continue;
-        const state = sessionStates.get(event.data.sessionID);
+        }
+        if (event.type !== "session.execution.failed" && event.type !== "session.execution.succeeded" && event.type !== "session.execution.interrupted")
+          continue;
+        const attempts = pendingAttempts.get(event.data.sessionID);
+        const state = attempts?.shift();
         if (!state) continue;
+        if (attempts?.length === 0) pendingAttempts.delete(event.data.sessionID);
         if (event.type === "session.execution.failed" && V2_NON_MODEL_ERROR_TYPES.has(event.data.error.type))
           continue;
         if (event.type === "session.execution.succeeded") {
           failedTargets.delete(state.stateKey);
           continue;
         }
+        if (event.type === "session.execution.interrupted") continue;
         const failed = failedTargets.get(state.stateKey) ?? /* @__PURE__ */ new Set();
         failed.add(targetKey(state.target));
         failedTargets.set(state.stateKey, failed);
@@ -616,6 +644,11 @@ function buildV2Plugin(config, context) {
       return async () => {
         controller.abort();
         await registration.dispose();
+        sessionTiers.clear();
+        sessionFirstMessage.clear();
+        sessionStates.clear();
+        pendingAttempts.clear();
+        failedTargets.clear();
       };
     }
   };
