@@ -636,6 +636,7 @@ function createEventStream() {
   const queue = []
   const waiters = []
   let closed = false
+  let acknowledge
 
   const close = () => {
     if (closed) return
@@ -645,9 +646,11 @@ function createEventStream() {
 
   const stream = {
     next() {
+      acknowledge?.()
+      acknowledge = undefined
       if (queue.length > 0) {
         const item = queue.shift()
-        item.consumed()
+        acknowledge = item.consumed
         return Promise.resolve({ done: false, value: item.value })
       }
       if (closed) return Promise.resolve({ done: true, value: undefined })
@@ -667,8 +670,8 @@ function createEventStream() {
       return new Promise((resolve) => {
         const item = { value, consumed: resolve }
         if (waiters.length > 0) {
+          acknowledge = item.consumed
           waiters.shift()({ done: false, value })
-          resolve()
         } else {
           queue.push(item)
         }
@@ -685,6 +688,7 @@ function createV2Context(initialModel, sessionAgent = "build") {
   let selectedModel = { ...initialModel }
   let promptHook
   let disposed = false
+  let disposeCalls = 0
   const switches = []
 
   return {
@@ -702,6 +706,7 @@ function createV2Context(initialModel, sessionAgent = "build") {
           promptHook = callback
           return {
             async dispose() {
+              disposeCalls += 1
               disposed = true
             },
           }
@@ -718,6 +723,9 @@ function createV2Context(initialModel, sessionAgent = "build") {
     },
     get disposed() {
       return disposed
+    },
+    get disposeCalls() {
+      return disposeCalls
     },
   }
 }
@@ -917,7 +925,15 @@ test("v2 plugin: interrupted execution consumes its pending attempt", async () =
 test("v2 plugin: session deletion clears pending routing state and cleanup is idempotent", async () => {
   const config = normalizeConfig({
     notify: false,
-    routers: [{ name: "v2-delete", tierModels: { SIMPLE: "litellm/delete-simple" } }],
+    routers: [
+      {
+        name: "v2-delete",
+        tierModels: {
+          SIMPLE: "litellm/delete-simple",
+          MEDIUM: "litellm/delete-medium",
+        },
+      },
+    ],
   })
   const fake = createV2Context({ providerID: "auto-router", id: "v2-delete" })
   const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
@@ -927,8 +943,15 @@ test("v2 plugin: session deletion clears pending routing state and cleanup is id
     type: "session.deleted",
     data: { sessionID: "session-v2" },
   })
+  await fake.events.flush()
+  await fake.promptHook(
+    v2Prompt("implement a function that connects to a database and handles errors"),
+  )
+  assert.deepEqual(fake.switches, [{ providerID: "litellm", id: "delete-simple" }])
+
   await cleanup()
   await cleanup()
 
   assert.equal(fake.disposed, true)
+  assert.equal(fake.disposeCalls, 1)
 })
