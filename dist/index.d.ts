@@ -1,4 +1,5 @@
-import { Hooks, PluginInput } from '@opencode-ai/plugin';
+import { Plugin } from '@opencode/plugin';
+import { Context } from '@opencode/plugin/promise/plugin';
 import { Tier, NormalizedPluginConfig } from './config.js';
 import { ClassifierInput } from './classifier.js';
 
@@ -121,10 +122,30 @@ declare function orchestrate(options: OrchestratorOptions, request: {
     systemPrompt?: string;
 }): Promise<OrchestratedResult>;
 
-type PluginModule = {
-    id: string;
-    server: (input: PluginInput) => Promise<Hooks>;
-};
+interface LegacyHooks {
+    event?: (input: {
+        event: {
+            type: string;
+            properties: {
+                sessionID?: string;
+                error?: {
+                    name?: string;
+                };
+                info?: {
+                    role?: string;
+                    time?: {
+                        completed?: number;
+                    };
+                    error?: unknown;
+                    sessionID?: string;
+                    providerID?: string;
+                    modelID?: string;
+                };
+            };
+        };
+    }) => Promise<void>;
+    "chat.message"?: (input: unknown, output: unknown) => Promise<void>;
+}
 interface ChatMessageInput {
     sessionID?: string;
     agent?: string;
@@ -148,8 +169,9 @@ interface ChatMessageOutput {
         text?: string;
     }>;
 }
-declare function createAutoRouter(): Hooks;
-declare function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hooks;
-declare const pluginModule: PluginModule;
+declare function createAutoRouter(): LegacyHooks;
+declare function createAutoRouterWithConfig(config: NormalizedPluginConfig): LegacyHooks;
+declare function createAutoRouterV2WithConfig(config: NormalizedPluginConfig, context: Context): Promise<() => Promise<void>>;
+declare const pluginModule: Plugin.Plugin;
 
-export { type ChatMessageInput, type ChatMessageOutput, type ClassifierFn, type ClassifierVerdict, type OrchestratedResult, type OrchestratorOptions, createAutoRouter, createAutoRouterWithConfig, createHeuristicClassifier, pluginModule as default, orchestrate, resolveTierFromLabel };
+export { type ChatMessageInput, type ChatMessageOutput, type ClassifierFn, type ClassifierVerdict, type LegacyHooks, type OrchestratedResult, type OrchestratorOptions, createAutoRouter, createAutoRouterV2WithConfig, createAutoRouterWithConfig, createHeuristicClassifier, pluginModule as default, orchestrate, resolveTierFromLabel };

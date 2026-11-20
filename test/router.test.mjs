@@ -3,7 +3,11 @@ import assert from "node:assert/strict"
 import { classifyRequest, stripReminderBlocks } from "../dist/classifier.js"
 import { normalizeConfig, modelKey, normalizeRouter, DEFAULT_TIER_MODELS } from "../dist/config.js"
 import { findRouterForModel } from "../dist/config-loader.js"
-import { createAutoRouter, createAutoRouterWithConfig } from "../dist/index.js"
+import {
+  createAutoRouter,
+  createAutoRouterV2WithConfig,
+  createAutoRouterWithConfig,
+} from "../dist/index.js"
 
 const cfg = normalizeConfig(undefined)
 
@@ -626,4 +630,160 @@ test("chat.message: non-model session errors keep the primary target", async () 
     await hooks["chat.message"](input, retry)
     assert.deepEqual(retry.message.model, { providerID: "litellm", modelID: "error-primary" })
   }
+})
+
+function createEventStream() {
+  const queue = []
+  const waiters = []
+  let closed = false
+
+  const close = () => {
+    if (closed) return
+    closed = true
+    while (waiters.length > 0) waiters.shift()({ done: true, value: undefined })
+  }
+
+  const stream = {
+    next() {
+      if (queue.length > 0) {
+        const item = queue.shift()
+        item.consumed()
+        return Promise.resolve({ done: false, value: item.value })
+      }
+      if (closed) return Promise.resolve({ done: true, value: undefined })
+      return new Promise((resolve) => waiters.push(resolve))
+    },
+    [Symbol.asyncIterator]() {
+      return this
+    },
+  }
+
+  return {
+    subscribe({ signal }) {
+      signal.addEventListener("abort", close, { once: true })
+      return stream
+    },
+    push(value) {
+      return new Promise((resolve) => {
+        const item = { value, consumed: resolve }
+        if (waiters.length > 0) {
+          waiters.shift()({ done: false, value })
+          resolve()
+        } else {
+          queue.push(item)
+        }
+      })
+    },
+  }
+}
+
+function createV2Context(initialModel, sessionAgent = "build") {
+  const events = createEventStream()
+  let selectedModel = { ...initialModel }
+  let promptHook
+  let disposed = false
+  const switches = []
+
+  return {
+    context: {
+      session: {
+        async get() {
+          return { id: "session-v2", model: selectedModel, agent: sessionAgent }
+        },
+        async switchModel({ model }) {
+          selectedModel = { ...model }
+          switches.push({ ...model })
+        },
+        async hook(name, callback) {
+          assert.equal(name, "prompt")
+          promptHook = callback
+          return {
+            async dispose() {
+              disposed = true
+            },
+          }
+        },
+      },
+      event: {
+        subscribe: events.subscribe,
+      },
+    },
+    events,
+    switches,
+    get promptHook() {
+      return promptHook
+    },
+    get disposed() {
+      return disposed
+    },
+  }
+}
+
+function v2Prompt(text = "hello") {
+  return {
+    sessionID: "session-v2",
+    messageID: "message-v2",
+    prompt: { text },
+    delivery: "steer",
+  }
+}
+
+test("v2 plugin: prompt hook switches model and honors firstMessageOnly", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2",
+        firstMessageOnly: true,
+        tierModels: {
+          SIMPLE: "litellm/simple-v2",
+          MEDIUM: "litellm/medium-v2",
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt())
+  await fake.promptHook(v2Prompt("please continue"))
+
+  assert.deepEqual(fake.switches, [{ providerID: "litellm", id: "simple-v2" }])
+  await cleanup()
+  assert.equal(fake.disposed, true)
+})
+
+test("v2 plugin: failed execution advances to the configured fallback", async () => {
+  const config = normalizeConfig({
+    notify: false,
+    routers: [
+      {
+        name: "v2-fallback",
+        tierModels: {
+          SIMPLE: {
+            model: "litellm/primary-v2",
+            fallbacks: ["litellm/secondary-v2"],
+          },
+        },
+      },
+    ],
+  })
+  const fake = createV2Context({ providerID: "auto-router", id: "v2-fallback" })
+  const cleanup = await createAutoRouterV2WithConfig(config, fake.context)
+
+  await fake.promptHook(v2Prompt())
+  await fake.events.push({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "session-v2",
+      error: { type: "provider.transport", message: "primary unavailable" },
+    },
+  })
+  await fake.promptHook(v2Prompt("retry"))
+
+  assert.deepEqual(fake.switches, [
+    { providerID: "litellm", id: "primary-v2" },
+    { providerID: "litellm", id: "secondary-v2" },
+  ])
+  await cleanup()
 })

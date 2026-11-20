@@ -1,12 +1,12 @@
 # opencode-auto-router
 
-Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/{name}` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Applied via the `chat.message` hook.
+Complexity-based auto router for [OpenCode](https://opencode.ai). Works like a fusion-style **local model**: register `auto-router/{name}` in `opencode.json`, and selecting it in the TUI activates per-message tier routing (SIMPLE / MEDIUM / COMPLEX / REASONING). Any other model selection — including real gateway models — is used exactly as picked. Applied via the OpenCode 2 `session.prompt` hook.
 
 Classification is pluggable: a LiteLLM-ported heuristic scorer (default), a local BERT-style ONNX model, or the macOS on-device Apple Foundation Model — usable alone or combined (priority chain / confidence vote).
 
 ```
 TUI selection ─┬─ auto-router/{name} (local router model)
-               │      └→ chat.message hook → complexity scoring → tier model
+               │      └→ session.prompt hook → complexity scoring → tier model
                └─ any other model → used as-is (routing skipped)
 ```
 

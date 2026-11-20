@@ -1,4 +1,6 @@
-import type { Hooks, PluginInput } from "@opencode-ai/plugin"
+import { Plugin } from "@opencode/plugin"
+import type { Context as V2PluginContext } from "@opencode/plugin/promise/plugin"
+import type { SessionHooks } from "@opencode/plugin/promise/session"
 import {
   normalizeConfig,
   type NormalizedPluginConfig,
@@ -14,9 +16,25 @@ import { createAppleFmClassifier } from "./classifiers/apple"
 import { orchestrate, type OrchestratorOptions, type OrchestratedResult } from "./classifiers/orchestrator"
 import type { ClassifierFn, ClassifierVerdict } from "./classifiers/types"
 
-type PluginModule = {
-  id: string
-  server: (input: PluginInput) => Promise<Hooks>
+export interface LegacyHooks {
+  event?: (input: {
+    event: {
+      type: string
+      properties: {
+        sessionID?: string
+        error?: { name?: string }
+        info?: {
+          role?: string
+          time?: { completed?: number }
+          error?: unknown
+          sessionID?: string
+          providerID?: string
+          modelID?: string
+        }
+      }
+    }
+  }) => Promise<void>
+  "chat.message"?: (input: unknown, output: unknown) => Promise<void>
 }
 
 export interface ChatMessageInput {
@@ -97,6 +115,15 @@ const NON_MODEL_ERROR_NAMES = new Set([
   "ProviderAuthError",
 ])
 
+const V2_NON_MODEL_ERROR_TYPES = new Set([
+  "permission.rejected",
+  "tool.execution",
+  "provider.auth",
+  "provider.content-filter",
+  "provider.invalid-request",
+  "provider.unsupported-operation",
+])
+
 function agentMatches(router: ReturnType<typeof normalizeConfig>["routers"][number], agent?: string): boolean {
   if (!agent) return true
   if (router.excludeAgents?.some((name) => name.toLowerCase() === agent.toLowerCase())) return false
@@ -155,11 +182,11 @@ function buildOrchestratorOptions(router: NormalizedRouter): OrchestratorOptions
   }
 }
 
-export function createAutoRouter(): Hooks {
+export function createAutoRouter(): LegacyHooks {
   return createAutoRouterWithConfig(normalizeConfig(loadConfig()))
 }
 
-export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hooks {
+export function createAutoRouterWithConfig(config: NormalizedPluginConfig): LegacyHooks {
   // Per-router session state, keyed by `${routerName}:${sessionID}` so multiple
   // routers can coexist without one pin bleeding into another.
   const sessionTiers = new Map<string, Tier>()
@@ -298,7 +325,16 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
 
       if (event.type !== "message.updated") return
       const info = event.properties.info
-      if (info.role !== "assistant" || !info.time.completed || info.error) return
+      if (
+        !info ||
+        info.role !== "assistant" ||
+        !info.time?.completed ||
+        info.error ||
+        !info.sessionID ||
+        !info.providerID ||
+        !info.modelID
+      )
+        return
       const completedModelKey = modelKey(info.providerID, info.modelID)
       if (!completedModelKey) return
       const attempt = takeCompletedAttempt(info.sessionID, completedModelKey)
@@ -311,10 +347,177 @@ export function createAutoRouterWithConfig(config: NormalizedPluginConfig): Hook
   }
 }
 
-const pluginModule: PluginModule = {
-  id: "opencode-auto-router",
-  server: async () => createAutoRouter(),
+type V2ModelSelection = {
+  providerID?: string
+  id?: string
+  variant?: string
 }
+
+type V2SessionState = {
+  routerName: string
+  tier: Tier
+  stateKey: string
+  target: ModelTarget
+}
+
+function v2ModelKey(model: V2ModelSelection | undefined): string | null {
+  if (!model?.providerID || !model.id) return null
+  return modelKey(model.providerID, model.id)
+}
+
+function v2ModelRef(target: ModelTarget): { providerID: string; id: string; variant?: string } {
+  return target.variant
+    ? { providerID: target.providerID, id: target.modelID, variant: target.variant }
+    : { providerID: target.providerID, id: target.modelID }
+}
+
+function v2TargetMatchesSelection(target: ModelTarget, selection: V2ModelSelection | undefined): boolean {
+  return (
+    targetKey(target) ===
+    `${v2ModelKey(selection) ?? ""}#${selection?.variant ?? ""}`
+  )
+}
+
+function buildV2Plugin(config: NormalizedPluginConfig, context: V2PluginContext) {
+  const sessionTiers = new Map<string, Tier>()
+  const sessionFirstMessage = new Map<string, boolean>()
+  const sessionStates = new Map<string, V2SessionState>()
+  const failedTargets = new Map<string, Set<string>>()
+
+  const selectTarget = (router: NormalizedRouter, tier: Tier, stateKey: string): ModelTarget => {
+    const failed = failedTargets.get(stateKey)
+    const target = targetsFor(router, tier).find((candidate) => !failed?.has(targetKey(candidate)))
+    if (target) return target
+    failed?.clear()
+    return targetFor(router, tier)
+  }
+
+  const routePrompt = async (event: SessionHooks["prompt"]): Promise<void> => {
+    if (!config.enabled) return
+
+    const session = await context.session.get({ sessionID: event.sessionID })
+    const selection = session.model
+    const directRouter = findRouterForModel({
+      config,
+      providerID: selection?.providerID,
+      modelID: selection?.id,
+    })
+    const previous = sessionStates.get(event.sessionID)
+    const ownedModel = previous && v2TargetMatchesSelection(previous.target, selection)
+    const router =
+      directRouter ??
+      (ownedModel ? config.routers.find((candidate) => candidate.name === previous.routerName) : undefined)
+    if (!router || !selection) return
+    if (!agentMatches(router, session.agent)) return
+
+    const humanText = stripReminderBlocks(event.prompt.text)
+    if (!humanText.trim()) return
+
+    const sessionKey = `${router.name}:${event.sessionID}`
+    if (router.firstMessageOnly) {
+      const isFirst = sessionFirstMessage.get(sessionKey) !== true
+      sessionFirstMessage.set(sessionKey, true)
+      if (!isFirst && !router.pinSession) return
+    }
+
+    const pinned = router.pinSession ? sessionTiers.get(sessionKey) : undefined
+    const result = pinned
+      ? {
+          tier: pinned,
+          confidence: 1,
+          cause: "session-pin",
+          signals: [] as string[],
+        }
+      : await orchestrate(buildOrchestratorOptions(router), { prompt: humanText })
+    const stateKey = `${sessionKey}:${result.tier}`
+    const target = selectTarget(router, result.tier, stateKey)
+    const alreadySelected = v2TargetMatchesSelection(target, selection)
+
+    sessionStates.set(event.sessionID, {
+      routerName: router.name,
+      tier: result.tier,
+      stateKey,
+      target,
+    })
+    sessionTiers.set(sessionKey, result.tier)
+
+    if (!alreadySelected) {
+      await context.session.switchModel({
+        sessionID: event.sessionID,
+        model: v2ModelRef(target),
+      })
+    }
+
+    if (config.notify) {
+      const label = router.tierLabels[result.tier] ?? result.tier
+      const conf = result.confidence.toFixed(2)
+      const targetRef = modelKey(target.providerID, target.modelID) ?? ""
+      const targetLabel = target.variant ? `${targetRef} (${target.variant})` : targetRef
+      console.log(
+        `[auto-router] ${router.name}: ${label} (conf=${conf}, cause=${result.cause}) → ${targetLabel}`,
+      )
+    }
+  }
+
+  const observeSessionEvents = async (signal: AbortSignal): Promise<void> => {
+    try {
+      for await (const event of context.event.subscribe({ signal })) {
+        if (
+          event.type !== "session.execution.failed" &&
+          event.type !== "session.execution.succeeded"
+        )
+          continue
+        const state = sessionStates.get(event.data.sessionID)
+        if (!state) continue
+        if (
+          event.type === "session.execution.failed" &&
+          V2_NON_MODEL_ERROR_TYPES.has(event.data.error.type)
+        )
+          continue
+        if (event.type === "session.execution.succeeded") {
+          failedTargets.delete(state.stateKey)
+          continue
+        }
+        const failed = failedTargets.get(state.stateKey) ?? new Set<string>()
+        failed.add(targetKey(state.target))
+        failedTargets.set(state.stateKey, failed)
+      }
+    } catch (error) {
+      if (!signal.aborted) {
+        console.error(
+          `[auto-router] event observer stopped: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
+  }
+
+  return {
+    setup: async (): Promise<() => Promise<void>> => {
+      const registration = await context.session.hook("prompt", routePrompt)
+      const controller = new AbortController()
+      void observeSessionEvents(controller.signal)
+      return async () => {
+        controller.abort()
+        await registration.dispose()
+      }
+    },
+  }
+}
+
+export async function createAutoRouterV2WithConfig(
+  config: NormalizedPluginConfig,
+  context: V2PluginContext,
+): Promise<() => Promise<void>> {
+  return buildV2Plugin(config, context).setup()
+}
+
+const pluginModule = Plugin.define({
+  id: "opencode-auto-router",
+  setup: async (context: V2PluginContext) => {
+    const config = normalizeConfig(loadConfig())
+    return createAutoRouterV2WithConfig(config, context)
+  },
+})
 
 export { resolveTierFromLabel, orchestrate, createHeuristicClassifier }
 export type { OrchestratorOptions, OrchestratedResult, ClassifierFn, ClassifierVerdict }

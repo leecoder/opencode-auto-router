@@ -1,7 +1,7 @@
 {
   "name": "opencode-auto-router",
   "version": "0.1.4",
-  "description": "Complexity-based auto router for OpenCode — routes each user message to SIMPLE/MEDIUM/COMPLEX/REASONING model tiers via the chat.message hook (LiteLLM complexity_router algorithm port)",
+  "description": "Complexity-based auto router for OpenCode — routes each user message to SIMPLE/MEDIUM/COMPLEX/REASONING model tiers via the session.prompt hook (LiteLLM complexity_router algorithm port)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,13 +31,14 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.0.0"
+    "@opencode/plugin": ">=2.0.0"
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@meridius-labs/apple-on-device-ai": "^1.6.2"
   },
   "devDependencies": {
+    "@opencode/plugin": "2.0.32",
     "@types/node": "^26.0.1",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0"
