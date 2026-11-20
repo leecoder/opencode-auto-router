@@ -46,6 +46,7 @@ Each router picks its backends and how they combine:
           "model": "mustafacolakoglu94/llm-query-complexity-classifier-onnx",
           "onnxFile": "onnx/model_quantized.onnx",
           "timeoutMs": 10000,
+          "maxInputTokens": 1024,
           "labelToTier": { "LOW": "SIMPLE", "MEDIUM": "MEDIUM", "HIGH": "COMPLEX" }
         },
         "apple-fm": { "timeoutMs": 15000 }
@@ -56,7 +57,9 @@ Each router picks its backends and how they combine:
 ```
 
 - **`heuristic`** (default) — the LiteLLM-port keyword scorer. <1 ms, zero deps.
-- **`bert`** — local ONNX text classifier via `@huggingface/transformers` (optional dependency; the dynamic import fails soft when it is not installed). Default model is a ModernBERT fine-tune of `anasnassar/llm-query-complexity-classifier` (Apache-2.0, labels LOW/MEDIUM/HIGH, 8k context). First use downloads ~144 MB to the HF cache; after that it runs fully offline — measured warm latency ~5 ms on Apple Silicon, and it handles Korean prompts directly (no keyword lists needed).
+- **`bert`** — local ONNX text classifier via `@huggingface/transformers` (optional dependency; the dynamic import fails soft when it is not installed). Default model is a ModernBERT fine-tune of `anasnassar/llm-query-complexity-classifier` (Apache-2.0, labels LOW/MEDIUM/HIGH, 8k context). First use downloads ~144 MB to the HF cache; after that it runs fully offline and handles Korean prompts directly (no keyword lists needed).
+
+  `maxInputTokens` defaults to 1024 and bounds the token window sent to ONNX inference; the complete prompt is tokenized first, so this does not cap tokenization cost. Longer prompts retain both ends, separated by an omission marker when the configured and model context limits permit it; smaller limits use a single prefix window. `onnxFile` selects the ONNX basename in the model's `onnx/` directory: `_quantized.onnx` selects q8, while an unquantized `.onnx` file selects fp32. `intraOpNumThreads` optionally limits ONNX Runtime's CPU intra-op threads; if unset, the runtime default applies. `timeoutMs` covers model loading and inference, but cannot interrupt a native ONNX call that blocks the Node thread.
 - **`apple-fm`** — macOS 26+ Apple Foundation Models via `@meridius-labs/apple-on-device-ai` (optional, darwin-only). Guided generation with a JSON schema forces exactly one tier label. Measured warm latency ~250–350 ms; requires Apple Intelligence enabled.
 
 **Combination modes**
@@ -217,7 +220,7 @@ When OpenCode publishes a model-failure `session.error`, the router remembers th
 | `agents` / `excludeAgents` | Restrict routing to / exclude specific agents |
 | `classifier` / `classifiers` | Backend selection (shorthand / full list). Default: heuristic-only |
 | `classifierCombination` | `priority` (default) or `vote` — see [Classifiers](#classifiers) |
-| `classifierOptions` | Per-backend overrides: `model`, `onnxFile`, `labelToTier`, `timeoutMs`, `minConfidence`, `shortCircuitTiers`, `instructions` |
+| `classifierOptions` | Per-backend overrides: `model`, `onnxFile`, `maxInputTokens`, `intraOpNumThreads`, `labelToTier`, `timeoutMs`, `minConfidence`, `shortCircuitTiers`, `instructions` |
 
 Top-level options: `enabled` (master switch, default `true`), `notify` (log tier changes, default `true`).
 

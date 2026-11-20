@@ -73,14 +73,51 @@ interface BertClassifierOptions {
     model?: string;
     /** ONNX file variant inside the repo (e.g. "model_quantized.onnx", "model.onnx") */
     onnxFile?: string;
+    /** Maximum prompt tokens passed to the model. Defaults to 1024 to bound CPU and memory cost. */
+    maxInputTokens?: number;
+    /** Optional ONNX Runtime CPU intra-op thread limit */
+    intraOpNumThreads?: number;
     /** Transform pipeline output labels into tiers. Default: LOW/MEDIUM/HIGH mapping, unknown → null */
     labelToTier?: Record<string, Tier | string> | LabelToTierResolver;
-    /** Hard deadline for load+infer; on expiry the backend reports failure */
+    /** Best-effort deadline for load+infer; it cannot preempt a synchronous native ONNX call */
     timeoutMs?: number;
     /** Extra pipeline options forwarded to transformers.js */
     device?: "cpu" | "auto";
 }
+interface TextClassificationOutput {
+    label: string;
+    score: number;
+}
+interface TextClassificationPipeline {
+    (text: string): Promise<TextClassificationOutput[]>;
+    tokenizer: {
+        (text: string, options: {
+            padding: false;
+            truncation: false;
+        }): {
+            input_ids: {
+                data: ArrayLike<number | bigint>;
+            };
+        };
+        model_max_length: number;
+        _tokenizerConfig: {
+            model_max_length?: number;
+        };
+        decode(tokenIDs: Array<number | bigint>, options: {
+            skip_special_tokens: true;
+        }): string;
+    };
+}
+declare function bertPipelineCacheKey(options: Pick<BertClassifierOptions, "model" | "onnxFile" | "device" | "intraOpNumThreads">): string;
 declare function resolveTierFromLabel(label: string, resolver: BertClassifierOptions["labelToTier"]): Tier | null;
+declare function boundPrompt(pipe: TextClassificationPipeline, prompt: string, maxInputTokens: number): {
+    prompt: string;
+    truncated: boolean;
+};
+declare function resolveOnnxModelOptions(onnxFile: string): {
+    model_file_name: string;
+    dtype: "q8" | "fp32";
+};
 
 /**
  * Classifier orchestrator — combines pluggable backends into one verdict.
@@ -174,4 +211,4 @@ declare function createAutoRouterWithConfig(config: NormalizedPluginConfig): Leg
 declare function createAutoRouterV2WithConfig(config: NormalizedPluginConfig, context: Context): Promise<() => Promise<void>>;
 declare const pluginModule: Plugin.Plugin;
 
-export { type ChatMessageInput, type ChatMessageOutput, type ClassifierFn, type ClassifierVerdict, type LegacyHooks, type OrchestratedResult, type OrchestratorOptions, createAutoRouter, createAutoRouterV2WithConfig, createAutoRouterWithConfig, createHeuristicClassifier, pluginModule as default, orchestrate, resolveTierFromLabel };
+export { type ChatMessageInput, type ChatMessageOutput, type ClassifierFn, type ClassifierVerdict, type LegacyHooks, type OrchestratedResult, type OrchestratorOptions, bertPipelineCacheKey, boundPrompt as boundBertPrompt, createAutoRouter, createAutoRouterV2WithConfig, createAutoRouterWithConfig, createHeuristicClassifier, pluginModule as default, orchestrate, resolveOnnxModelOptions, resolveTierFromLabel };

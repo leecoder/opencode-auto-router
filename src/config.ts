@@ -24,9 +24,13 @@ export interface ClassifierConfig {
   model?: string
   /** bert: ONNX file variant inside the repo (e.g. "model_quantized.onnx") */
   onnxFile?: string
+  /** bert: maximum prompt tokens sent to the classifier (default 1024) */
+  maxInputTokens?: number
+  /** bert: optional ONNX Runtime CPU intra-op thread limit */
+  intraOpNumThreads?: number
   /** bert: map pipeline labels to tiers; missing labels → MEDIUM fallback */
   labelToTier?: Partial<Record<string, Tier>>
-  /** Hard deadline per classify() call in ms (bert default 10000, apple-fm 15000) */
+  /** Best-effort deadline per classify() call in ms (bert default 10000, apple-fm 15000) */
   timeoutMs?: number
   /** priority mode: below this confidence the backend is skipped (default 0.5) */
   minConfidence?: number

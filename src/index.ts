@@ -11,7 +11,13 @@ import {
 import { findRouterForModel, loadConfig, modelKey } from "./config-loader"
 import { stripReminderBlocks } from "./classifier"
 import { createHeuristicClassifier } from "./classifiers/heuristic"
-import { createBertClassifier, resolveTierFromLabel } from "./classifiers/bert"
+import {
+  boundPrompt as boundBertPrompt,
+  bertPipelineCacheKey,
+  createBertClassifier,
+  resolveOnnxModelOptions,
+  resolveTierFromLabel,
+} from "./classifiers/bert"
 import { createAppleFmClassifier } from "./classifiers/apple"
 import { orchestrate, type OrchestratorOptions, type OrchestratedResult } from "./classifiers/orchestrator"
 import type { ClassifierFn, ClassifierVerdict } from "./classifiers/types"
@@ -141,6 +147,8 @@ function buildOrchestratorOptions(router: NormalizedRouter): OrchestratorOptions
       return createBertClassifier({
         model: kindOptions.model,
         onnxFile: kindOptions.onnxFile,
+        maxInputTokens: kindOptions.maxInputTokens,
+        intraOpNumThreads: kindOptions.intraOpNumThreads,
         labelToTier: kindOptions.labelToTier
           ? (kindOptions.labelToTier as Record<string, string>)
           : undefined,
@@ -560,6 +568,13 @@ const pluginModule = Plugin.define({
   },
 })
 
-export { resolveTierFromLabel, orchestrate, createHeuristicClassifier }
+export {
+  boundBertPrompt,
+  bertPipelineCacheKey,
+  resolveOnnxModelOptions,
+  resolveTierFromLabel,
+  orchestrate,
+  createHeuristicClassifier,
+}
 export type { OrchestratorOptions, OrchestratedResult, ClassifierFn, ClassifierVerdict }
 export default pluginModule
